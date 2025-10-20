@@ -46,3 +46,52 @@ struct WorkoutEntryCard: View {
     .padding()
     .background(Color(.systemGroupedBackground))
 }
+
+struct DietEntryCard: View {
+    let entry: DietEntry
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(entry.mealType.displayName)
+                    .font(.headline)
+                Spacer()
+                Text(entry.formattedDate)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(entry.items) { item in
+                    HStack {
+                        Text(item.name)
+                            .font(.subheadline)
+                        Spacer()
+                        Text(item.quantity)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 3)
+    }
+}
+
+#Preview("Diet Entry") {
+    DietEntryCard(
+        entry: DietEntry(
+            mealType: .lunch,
+            items: [
+                DietItemEntry(name: "Paneer", quantity: "80 g"),
+                DietItemEntry(name: "Rice", quantity: "120 g")
+            ]
+        )
+    )
+    .padding()
+    .background(Color(.systemGroupedBackground))
+}

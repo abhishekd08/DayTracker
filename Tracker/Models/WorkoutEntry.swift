@@ -37,3 +37,60 @@ struct WorkoutEntry: Identifiable, Codable, Equatable {
         return formatter.string(from: date)
     }
 }
+
+enum MealType: String, Codable, CaseIterable, Identifiable {
+    case preWorkout
+    case postWorkout
+    case lunch
+    case eveningMeal
+    case dinner
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .preWorkout: return "Pre-Workout"
+        case .postWorkout: return "Post-Workout"
+        case .lunch: return "Lunch"
+        case .eveningMeal: return "Evening Meal"
+        case .dinner: return "Dinner"
+        }
+    }
+}
+
+struct DietItemEntry: Identifiable, Codable, Equatable {
+    let id: UUID
+    var name: String
+    var quantity: String
+
+    init(id: UUID = UUID(), name: String, quantity: String) {
+        self.id = id
+        self.name = name
+        self.quantity = quantity
+    }
+}
+
+struct DietEntry: Identifiable, Codable, Equatable {
+    let id: UUID
+    var date: Date
+    var mealType: MealType
+    var items: [DietItemEntry]
+
+    init(id: UUID = UUID(), date: Date = Date(), mealType: MealType, items: [DietItemEntry]) {
+        self.id = id
+        self.date = date
+        self.mealType = mealType
+        self.items = items
+    }
+
+    var formattedDate: String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+
+    var summaryLine: String {
+        items.map { "\($0.name) \($0.quantity)" }.joined(separator: ", ")
+    }
+}

@@ -103,3 +103,96 @@ struct EditWorkoutEntryView: View {
         entry: WorkoutEntry(exerciseName: "Bench Press", reps: 8, sets: 4, weight: 60)
     ) { _ in } onDelete: { _ in }
 }
+
+struct EditDietEntryView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var entry: DietEntry
+    @State private var items: [DietItemEntry]
+
+    let onSave: (DietEntry) -> Void
+    let onDelete: (DietEntry) -> Void
+
+    init(entry: DietEntry, onSave: @escaping (DietEntry) -> Void, onDelete: @escaping (DietEntry) -> Void) {
+        _entry = State(initialValue: entry)
+        _items = State(initialValue: entry.items)
+        self.onSave = onSave
+        self.onDelete = onDelete
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Meal") {
+                    Picker("Type", selection: $entry.mealType) {
+                        ForEach(MealType.allCases) { type in
+                            Text(type.displayName).tag(type)
+                        }
+                    }
+                }
+
+                Section("Items") {
+                    ForEach($items) { $item in
+                        VStack(alignment: .leading) {
+                            TextField("Food name", text: $item.name)
+                                .textInputAutocapitalization(.words)
+                            TextField("Quantity", text: $item.quantity)
+                                .textInputAutocapitalization(.sentences)
+                                .keyboardType(.default)
+                        }
+                    }
+                    .onDelete { indices in
+                        items.remove(atOffsets: indices)
+                    }
+
+                    Button {
+                        items.append(DietItemEntry(name: "", quantity: ""))
+                    } label: {
+                        Label("Add Item", systemImage: "plus.circle")
+                    }
+                }
+
+                Section {
+                    Button(role: .destructive) {
+                        onDelete(entry)
+                        dismiss()
+                    } label: {
+                        Text("Delete Meal")
+                    }
+                }
+            }
+            .navigationTitle("Edit Meal")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { saveChanges() }
+                        .disabled(!canSave)
+                }
+            }
+        }
+    }
+
+    private var canSave: Bool {
+        guard !items.isEmpty else { return false }
+        return items.allSatisfy { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty && !$0.quantity.trimmingCharacters(in: .whitespaces).isEmpty }
+    }
+
+    private func saveChanges() {
+        guard canSave else { return }
+        entry.items = items
+        entry.date = Date()
+        onSave(entry)
+        dismiss()
+    }
+}
+
+#Preview("Diet Edit") {
+    EditDietEntryView(
+        entry: DietEntry(
+            mealType: .dinner,
+            items: [DietItemEntry(name: "Paneer", quantity: "100 g")]
+        )
+    ) { _ in } onDelete: { _ in }
+}
