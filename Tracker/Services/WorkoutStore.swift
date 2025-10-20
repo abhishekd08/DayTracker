@@ -71,7 +71,7 @@ final class WorkoutStore {
     func export(entries: [WorkoutEntry]) async throws -> URL {
         let snapshot = entries
         return try await withCheckedThrowingContinuation { continuation in
-            queue.async { [encoder, fileURL] in
+            queue.async { [encoder] in
                 do {
                     let filename = "WorkoutLog-\(Self.exportFilenameFormatter.string(from: Date())).json"
                     let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
@@ -155,14 +155,11 @@ final class DietStore {
         }
     }
 
-    func export(entries: [DietEntry], catalog: [String]) async throws -> URL {
-        let payload = DietStorePayload(entries: entries, catalog: catalog)
+    func export(entries: [DietEntry]) async throws -> URL {
+        let snapshot = entries
         return try await withCheckedThrowingContinuation { continuation in
-            queue.async { [encoder, fileURL] in
+            queue.async { [encoder] in
                 do {
-                    let data = try encoder.encode(payload)
-                    try data.write(to: fileURL, options: [.atomic])
-
                     let filename = "DietLog-\(Self.exportFilenameFormatter.string(from: Date())).json"
                     let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
 
@@ -170,7 +167,8 @@ final class DietStore {
                         try FileManager.default.removeItem(at: tempURL)
                     }
 
-                    try FileManager.default.copyItem(at: fileURL, to: tempURL)
+                    let data = try encoder.encode(snapshot)
+                    try data.write(to: tempURL, options: [.atomic])
                     continuation.resume(returning: tempURL)
                 } catch {
                     continuation.resume(throwing: error)

@@ -44,6 +44,7 @@ enum MealType: String, Codable, CaseIterable, Identifiable {
     case lunch
     case eveningMeal
     case dinner
+    case extras
 
     var id: String { rawValue }
 
@@ -52,10 +53,11 @@ enum MealType: String, Codable, CaseIterable, Identifiable {
         case .preWorkout: return "Pre-Workout"
         case .postWorkout: return "Post-Workout"
         case .lunch: return "Lunch"
-        case .eveningMeal: return "Evening Meal"
+        case .eveningMeal: return "Evening Snacks"
         case .dinner: return "Dinner"
-        }
+        case .extras: return "Extras"
     }
+}
 }
 
 struct DietItemEntry: Identifiable, Codable, Equatable {

@@ -143,9 +143,9 @@ final class DietViewModel: ObservableObject {
         persist()
     }
 
-    func exportLog() async -> URL? {
+    func exportLog(entries: [DietEntry]) async -> URL? {
         do {
-            return try await store.export(entries: entries, catalog: catalog)
+            return try await store.export(entries: entries)
         } catch {
             errorMessage = "Failed to export meals."
             return nil

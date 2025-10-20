@@ -86,30 +86,56 @@ struct DateRangeFilterSheet: View {
 }
 
 struct DietFilterSheet: View {
-    @Binding var selectedDate: Date?
+    @Binding var selectedRange: DateRange?
     @Binding var selectedMealType: MealType?
-    @State private var proposedDate: Date
+    @State private var proposedStart: Date
+    @State private var proposedEnd: Date
     @State private var proposedMealType: MealType?
     @Environment(\.dismiss) private var dismiss
 
-    init(selectedDate: Binding<Date?>, selectedMealType: Binding<MealType?>) {
-        _selectedDate = selectedDate
+    init(selectedRange: Binding<DateRange?>, selectedMealType: Binding<MealType?>) {
+        _selectedRange = selectedRange
         _selectedMealType = selectedMealType
-        _proposedDate = State(initialValue: selectedDate.wrappedValue ?? Date())
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        if let range = selectedRange.wrappedValue {
+            _proposedStart = State(initialValue: calendar.startOfDay(for: range.start))
+            _proposedEnd = State(initialValue: calendar.startOfDay(for: range.end))
+        } else {
+            _proposedStart = State(initialValue: today)
+            _proposedEnd = State(initialValue: today)
+        }
         _proposedMealType = State(initialValue: selectedMealType.wrappedValue)
     }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Date") {
-                    DatePicker("", selection: $proposedDate, displayedComponents: [.date])
-                        .labelsHidden()
-                        .datePickerStyle(.graphical)
+                Section("Start Date") {
+                    DatePicker(
+                        "Start",
+                        selection: $proposedStart,
+                        displayedComponents: [.date]
+                    )
+                    .labelsHidden()
+                    .datePickerStyle(.graphical)
+                }
 
-                    if selectedDate != nil {
-                        Button("Clear Date", role: .destructive) {
-                            selectedDate = nil
+                Section("End Date") {
+                    DatePicker(
+                        "End",
+                        selection: $proposedEnd,
+                        in: proposedStart...,
+                        displayedComponents: [.date]
+                    )
+                    .labelsHidden()
+                    .datePickerStyle(.graphical)
+                }
+
+                if selectedRange != nil {
+                    Section {
+                        Button("Clear Date Range", role: .destructive) {
+                            selectedRange = nil
                             dismiss()
                         }
                     }
@@ -138,10 +164,19 @@ struct DietFilterSheet: View {
 
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Apply") {
-                        selectedDate = proposedDate
+                        let calendar = Calendar.current
+                        let normalizedStart = calendar.startOfDay(for: proposedStart)
+                        let endStart = calendar.startOfDay(for: proposedEnd)
+                        let normalizedEnd = calendar.date(byAdding: DateComponents(day: 1, second: -1), to: endStart) ?? endStart
+                        selectedRange = DateRange(start: normalizedStart, end: normalizedEnd)
                         selectedMealType = proposedMealType
                         dismiss()
                     }
+                }
+            }
+            .onChange(of: proposedStart) { _, newValue in
+                if proposedEnd < newValue {
+                    proposedEnd = newValue
                 }
             }
         }
@@ -149,5 +184,5 @@ struct DietFilterSheet: View {
 }
 
 #Preview("Diet Filter") {
-    DietFilterSheet(selectedDate: .constant(Date()), selectedMealType: .constant(.lunch))
+    DietFilterSheet(selectedRange: .constant(DateRange(start: Date(), end: Date())), selectedMealType: .constant(.lunch))
 }

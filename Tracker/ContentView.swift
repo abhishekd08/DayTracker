@@ -437,13 +437,13 @@ private struct WorkoutLogView: View {
 private struct DietLogView: View {
     @StateObject private var viewModel = DietViewModel()
 
-    @State private var mealType: MealType = .lunch
+    @State private var mealType: MealType = DietLogView.defaultMealType(for: Date())
     @State private var itemQuery = ""
     @State private var selectedItem: String?
     @State private var quantityText = ""
     @State private var mealItems: [MealItemDraft] = []
     @State private var activeSheet: ActiveSheet?
-    @State private var filterDate: Date?
+    @State private var filterRange: DateRange?
     @State private var filterMealType: MealType?
 
     private enum ActiveSheet: Identifiable {
@@ -487,6 +487,27 @@ private struct DietLogView: View {
         return formatter
     }()
 
+    private static func defaultMealType(for date: Date) -> MealType {
+        let calendar = Calendar.current
+        let components = calendar.dateComponents([.hour, .minute], from: date)
+        let minutes = (components.hour ?? 0) * 60 + (components.minute ?? 0)
+
+        switch minutes {
+        case 420..<495: // 7:00 - 8:15
+            return .preWorkout
+        case 495..<600: // 8:15 - 10:00
+            return .postWorkout
+        case 720..<840: // 12:00 - 14:00
+            return .lunch
+        case 990..<1080: // 16:30 - 18:00
+            return .eveningMeal
+        case 1200..<1320: // 20:00 - 22:00
+            return .dinner
+        default:
+            return .extras
+        }
+    }
+
     private var filteredCatalog: [String] {
         let trimmed = itemQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return viewModel.catalog }
@@ -495,16 +516,31 @@ private struct DietLogView: View {
 
     private var displayedEntries: [DietEntry] {
         viewModel.entries.filter { entry in
-            let matchesDate = filterDate.map { Calendar.current.isDate(entry.date, inSameDayAs: $0) } ?? true
+            let matchesRange: Bool
+            if let range = filterRange {
+                let startOfDay = Calendar.current.startOfDay(for: range.start)
+                let endOfDayStart = Calendar.current.startOfDay(for: range.end)
+                let endOfDay = Calendar.current.date(byAdding: DateComponents(day: 1, second: -1), to: endOfDayStart) ?? endOfDayStart
+                matchesRange = (entry.date >= startOfDay) && (entry.date <= endOfDay)
+            } else {
+                matchesRange = true
+            }
             let matchesMeal = filterMealType.map { entry.mealType == $0 } ?? true
-            return matchesDate && matchesMeal
+            return matchesRange && matchesMeal
         }
     }
 
     private var filterDescription: String {
         var components: [String] = []
-        if let filterDate {
-            components.append(Self.dateFormatter.string(from: filterDate))
+        if let range = filterRange {
+            let formatter = Self.dateFormatter
+            let calendar = Calendar.current
+            let endDisplay = calendar.startOfDay(for: range.end)
+            if calendar.isDate(range.start, inSameDayAs: endDisplay) {
+                components.append(formatter.string(from: range.start))
+            } else {
+                components.append("\(formatter.string(from: range.start)) – \(formatter.string(from: endDisplay))")
+            }
         }
         if let filterMealType {
             components.append(filterMealType.displayName)
@@ -551,7 +587,7 @@ private struct DietLogView: View {
                 } label: {
                     Image(systemName: "square.and.arrow.up")
                 }
-                .disabled(viewModel.entries.isEmpty)
+                .disabled(!canExportEntries)
                 .accessibilityLabel("Export meals JSON")
             }
         }
@@ -564,7 +600,7 @@ private struct DietLogView: View {
                     viewModel.deleteEntry(toDelete)
                 }
             case .filter:
-                DietFilterSheet(selectedDate: $filterDate, selectedMealType: $filterMealType)
+                DietFilterSheet(selectedRange: $filterRange, selectedMealType: $filterMealType)
             case .share(let file):
                 ShareSheet(activityItems: [file.url]) {
                     Task { @MainActor in
@@ -582,6 +618,9 @@ private struct DietLogView: View {
         .task {
             viewModel.load()
         }
+        .onAppear {
+            mealType = Self.defaultMealType(for: Date())
+        }
     }
 
     private var addMealCard: some View {
@@ -594,12 +633,24 @@ private struct DietLogView: View {
                     Text(type.displayName).tag(type)
                 }
             }
-            .pickerStyle(.segmented)
+            .pickerStyle(.menu)
 
             VStack(alignment: .leading, spacing: 8) {
+                let trimmedQuery = itemQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+
                 TextField("Search or add food", text: $itemQuery)
                     .textInputAutocapitalization(.words)
                     .disableAutocorrection(true)
+                    .padding(.vertical, 14)
+                    .padding(.horizontal, 16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(Color(.systemBackground))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(Color(.separator), lineWidth: 1)
+                    )
                     .onChange(of: itemQuery, initial: false) { _, newValue in
                         if viewModel.catalog.contains(where: { $0.caseInsensitiveCompare(newValue) == .orderedSame }) {
                             selectedItem = viewModel.catalog.first { $0.caseInsensitiveCompare(newValue) == .orderedSame }
@@ -608,7 +659,7 @@ private struct DietLogView: View {
                         }
                     }
 
-                if !filteredCatalog.isEmpty {
+                if !trimmedQuery.isEmpty && !filteredCatalog.isEmpty {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 4) {
                             ForEach(filteredCatalog, id: \.self) { name in
@@ -647,7 +698,6 @@ private struct DietLogView: View {
                     .frame(maxHeight: 140)
                 }
 
-                let trimmedQuery = itemQuery.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmedQuery.isEmpty && !viewModel.catalog.contains(where: { $0.caseInsensitiveCompare(trimmedQuery) == .orderedSame }) {
                     Button {
                         viewModel.addCatalogItem(named: trimmedQuery)
@@ -764,7 +814,7 @@ private struct DietLogView: View {
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                         Button("Clear Filters") {
-                            filterDate = nil
+                            filterRange = nil
                             filterMealType = nil
                         }
                         .buttonStyle(.borderless)
@@ -787,15 +837,16 @@ private struct DietLogView: View {
     }
 
     private var filterButton: some View {
-        Button {
+        let filterActive = filterRange != nil || filterMealType != nil
+        return Button {
             activeSheet = .filter
         } label: {
-            Image(systemName: filterDate == nil && filterMealType == nil ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+            Image(systemName: filterActive ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                 .imageScale(.medium)
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(filterDate == nil && filterMealType == nil ? Color.primary : Color.accentColor)
+                .foregroundStyle(filterActive ? Color.accentColor : Color.primary)
         }
-        .accessibilityLabel("Filter meals")
+        .accessibilityLabel(filterActive ? "Change meal filters" : "Filter meals")
         .buttonStyle(.plain)
     }
 
@@ -823,16 +874,30 @@ private struct DietLogView: View {
         quantityText = ""
         itemQuery = ""
         selectedItem = nil
+        mealType = Self.defaultMealType(for: Date())
     }
 
     private func exportLog() {
         Task {
-            if let url = await viewModel.exportLog() {
+            let entriesToExport = entriesForExport
+            guard !entriesToExport.isEmpty else { return }
+            if let url = await viewModel.exportLog(entries: entriesToExport) {
                 await MainActor.run {
                     activeSheet = .share(ExportedFile(url: url))
                 }
             }
         }
+    }
+
+    private var entriesForExport: [DietEntry] {
+        if filterRange == nil && filterMealType == nil {
+            return viewModel.entries
+        }
+        return displayedEntries
+    }
+
+    private var canExportEntries: Bool {
+        !entriesForExport.isEmpty
     }
 }
 
