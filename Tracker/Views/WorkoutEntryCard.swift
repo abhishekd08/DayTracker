@@ -99,7 +99,7 @@ struct DietEntryCard: View {
             mealType: .lunch,
             items: [
                 DietItemEntry(name: "Paneer", quantity: "80 g", calories: 180, protein: 18, carbs: 6, fat: 10),
-                DietItemEntry(name: "Rice", quantity: "120 g", calories: 150, protein: 3, carbs: 32, fat: 1.5)
+                DietItemEntry(name: "Rice", quantity: "120 g", calories: 150, protein: 3, carbs: 32, fat: 5)
             ]
         )
     )

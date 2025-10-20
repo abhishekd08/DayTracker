@@ -79,6 +79,11 @@ struct EditWorkoutEntryView: View {
                     Button("Save") { saveChanges() }
                         .disabled(!canSave)
                 }
+
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { focusedField = nil }
+                }
             }
         }
     }
@@ -107,17 +112,13 @@ struct EditWorkoutEntryView: View {
     ) { _ in } onDelete: { _ in }
 }
 
+// MARK: - EditDietEntryView
+
 struct EditDietEntryView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var entry: DietEntry
     @State private var items: [DietItemEntry]
-    private static let numberFormatter: NumberFormatter = {
-        let formatter = NumberFormatter()
-        formatter.maximumFractionDigits = 1
-        formatter.minimumFractionDigits = 0
-        formatter.usesGroupingSeparator = false
-        return formatter
-    }()
+    @FocusState private var isMealFieldFocused: Bool
 
     let onSave: (DietEntry) -> Void
     let onDelete: (DietEntry) -> Void
@@ -142,25 +143,7 @@ struct EditDietEntryView: View {
 
                 Section("Items") {
                     ForEach($items) { $item in
-                        VStack(alignment: .leading) {
-                            TextField("Food name", text: $item.name)
-                                .textInputAutocapitalization(.words)
-                            TextField("Quantity", text: $item.quantity)
-                                .textInputAutocapitalization(.sentences)
-                                .keyboardType(.default)
-                            HStack(spacing: 12) {
-                                TextField("Calories", text: numberBinding(for: $item.calories))
-                                    .keyboardType(.decimalPad)
-                                TextField("Protein (g)", text: numberBinding(for: $item.protein))
-                                    .keyboardType(.decimalPad)
-                            }
-                            HStack(spacing: 12) {
-                                TextField("Carbs (g)", text: numberBinding(for: $item.carbs))
-                                    .keyboardType(.decimalPad)
-                                TextField("Fat (g)", text: numberBinding(for: $item.fat))
-                                    .keyboardType(.decimalPad)
-                            }
-                        }
+                        ItemRow(item: $item, isMealFieldFocused: $isMealFieldFocused)
                     }
                     .onDelete { indices in
                         items.remove(atOffsets: indices)
@@ -192,13 +175,20 @@ struct EditDietEntryView: View {
                     Button("Save") { saveChanges() }
                         .disabled(!canSave)
                 }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { isMealFieldFocused = false }
+                }
             }
         }
     }
 
     private var canSave: Bool {
         guard !items.isEmpty else { return false }
-        return items.allSatisfy { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty && !$0.quantity.trimmingCharacters(in: .whitespaces).isEmpty }
+        return items.allSatisfy {
+            !$0.name.trimmingCharacters(in: .whitespaces).isEmpty &&
+            !$0.quantity.trimmingCharacters(in: .whitespaces).isEmpty
+        }
     }
 
     private func saveChanges() {
@@ -208,23 +198,51 @@ struct EditDietEntryView: View {
         onSave(entry)
         dismiss()
     }
+}
 
-    private func numberBinding(for value: Binding<Double?>) -> Binding<String> {
-        Binding(
-            get: {
-                guard let rawValue = value.wrappedValue else { return "" }
-                if let formatted = Self.numberFormatter.string(from: NSNumber(value: rawValue)) {
-                    return formatted
-                }
-                return String(rawValue)
-            },
-            set: { newText in
-                let trimmed = newText.trimmingCharacters(in: .whitespacesAndNewlines)
-                value.wrappedValue = trimmed.isEmpty ? nil : Double(trimmed)
+// MARK: - ItemRow Subview
+
+private struct ItemRow: View {
+    @Binding var item: DietItemEntry
+    @FocusState.Binding var isMealFieldFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            TextField("Food name", text: $item.name)
+                .textInputAutocapitalization(.words)
+                .focused($isMealFieldFocused)
+                .textFieldStyle(.roundedBorder)
+
+            ReadOnlyValueBox(title: "Quantity", value: quantityDisplay(for: item.quantity))
+
+            Text("Macros")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 12) {
+                ReadOnlyValueBox(title: "Calories", value: macroDisplay(for: item.calories, unit: "kcal"))
+                ReadOnlyValueBox(title: "Protein", value: macroDisplay(for: item.protein, unit: "g"))
             }
-        )
+
+            HStack(spacing: 12) {
+                ReadOnlyValueBox(title: "Carbs", value: macroDisplay(for: item.carbs, unit: "g"))
+                ReadOnlyValueBox(title: "Fat", value: macroDisplay(for: item.fat, unit: "g"))
+            }
+        }
+    }
+
+    private func macroDisplay(for value: Int?, unit: String) -> String {
+        guard let value else { return "—" }
+        return unit.isEmpty ? "\(value)" : "\(value) \(unit)"
+    }
+
+    private func quantityDisplay(for value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "—" : trimmed
     }
 }
+
+// MARK: - Preview
 
 #Preview("Diet Edit") {
     EditDietEntryView(
@@ -233,4 +251,28 @@ struct EditDietEntryView: View {
             items: [DietItemEntry(name: "Paneer", quantity: "100 g", calories: 180, protein: 18, carbs: 6, fat: 10)]
         )
     ) { _ in } onDelete: { _ in }
+}
+
+// MARK: - ReadOnlyValueBox
+
+private struct ReadOnlyValueBox: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 10)
+                .padding(.horizontal, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(.quaternary, lineWidth: 1)
+                )
+        }
+    }
 }

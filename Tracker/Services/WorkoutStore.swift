@@ -169,9 +169,8 @@ final class DietStore {
     }
 
     func export(entries: [DietEntry]) async throws -> URL {
-        let snapshot = entries
         return try await withCheckedThrowingContinuation { continuation in
-            queue.async { [encoder] in
+            queue.async {
                 do {
                     let filename = "DietLog-\(Self.exportFilenameFormatter.string(from: Date())).json"
                     let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
@@ -180,7 +179,8 @@ final class DietStore {
                         try FileManager.default.removeItem(at: tempURL)
                     }
 
-                    let data = try encoder.encode(snapshot)
+                    let exportObjects = entries.map { $0.exportDictionary() }
+                    let data = try JSONSerialization.data(withJSONObject: exportObjects, options: [.prettyPrinted, .sortedKeys])
                     try data.write(to: tempURL, options: [.atomic])
                     continuation.resume(returning: tempURL)
                 } catch {

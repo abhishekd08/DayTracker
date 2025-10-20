@@ -88,12 +88,12 @@ struct FoodCatalogItem: Identifiable, Codable, Equatable {
 
     let id: UUID
     var name: String
-    var portionAmount: Double
+    var portionAmount: Int
     var unit: PortionUnit
-    var calories: Double?
-    var protein: Double?
-    var carbs: Double?
-    var fat: Double?
+    var calories: Int?
+    var protein: Int?
+    var carbs: Int?
+    var fat: Int?
     var hasMacros: Bool {
         calories != nil || protein != nil || carbs != nil || fat != nil
     }
@@ -101,12 +101,12 @@ struct FoodCatalogItem: Identifiable, Codable, Equatable {
     init(
         id: UUID = UUID(),
         name: String,
-        portionAmount: Double = 100,
+        portionAmount: Int = 100,
         unit: PortionUnit = .grams,
-        calories: Double? = nil,
-        protein: Double? = nil,
-        carbs: Double? = nil,
-        fat: Double? = nil
+        calories: Int? = nil,
+        protein: Int? = nil,
+        carbs: Int? = nil,
+        fat: Int? = nil
     ) {
         self.id = id
         self.name = name
@@ -118,16 +118,55 @@ struct FoodCatalogItem: Identifiable, Codable, Equatable {
         self.fat = fat
     }
 
-    func scaledMacros(for amount: Double) -> (calories: Double?, protein: Double?, carbs: Double?, fat: Double?) {
+    private enum CodingKeys: String, CodingKey {
+        case id, name, portionAmount, unit, calories, protein, carbs, fat
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        portionAmount = try container.decodeIfPresent(Int.self, forKey: .portionAmount)
+            ?? Int(ceil(try container.decodeIfPresent(Double.self, forKey: .portionAmount) ?? 100))
+        unit = try container.decode(PortionUnit.self, forKey: .unit)
+        calories = FoodCatalogItem.decodeInt(from: container, key: .calories)
+        protein = FoodCatalogItem.decodeInt(from: container, key: .protein)
+        carbs = FoodCatalogItem.decodeInt(from: container, key: .carbs)
+        fat = FoodCatalogItem.decodeInt(from: container, key: .fat)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(portionAmount, forKey: .portionAmount)
+        try container.encode(unit, forKey: .unit)
+        try container.encodeIfPresent(calories, forKey: .calories)
+        try container.encodeIfPresent(protein, forKey: .protein)
+        try container.encodeIfPresent(carbs, forKey: .carbs)
+        try container.encodeIfPresent(fat, forKey: .fat)
+    }
+
+    private static func decodeInt(from container: KeyedDecodingContainer<CodingKeys>, key: CodingKeys) -> Int? {
+        if let intValue = try? container.decodeIfPresent(Int.self, forKey: key) {
+            return intValue
+        }
+        if let doubleValue = try? container.decode(Double.self, forKey: key) {
+            return Int(ceil(doubleValue))
+        }
+        return nil
+    }
+
+    func scaledMacros(for amount: Double) -> (calories: Int?, protein: Int?, carbs: Int?, fat: Int?) {
         guard portionAmount > 0 else {
             return (calories, protein, carbs, fat)
         }
-        let scale = amount / portionAmount
+        let scale = amount / Double(portionAmount)
         return (
-            calories.map { $0 * scale },
-            protein.map { $0 * scale },
-            carbs.map { $0 * scale },
-            fat.map { $0 * scale }
+            calories.map { Int(ceil(Double($0) * scale)) },
+            protein.map { Int(ceil(Double($0) * scale)) },
+            carbs.map { Int(ceil(Double($0) * scale)) },
+            fat.map { Int(ceil(Double($0) * scale)) }
         )
     }
 }
@@ -136,19 +175,19 @@ struct DietItemEntry: Identifiable, Codable, Equatable {
     let id: UUID
     var name: String
     var quantity: String
-    var calories: Double?
-    var protein: Double?
-    var carbs: Double?
-    var fat: Double?
+    var calories: Int?
+    var protein: Int?
+    var carbs: Int?
+    var fat: Int?
 
     init(
         id: UUID = UUID(),
         name: String,
         quantity: String,
-        calories: Double? = nil,
-        protein: Double? = nil,
-        carbs: Double? = nil,
-        fat: Double? = nil
+        calories: Int? = nil,
+        protein: Int? = nil,
+        carbs: Int? = nil,
+        fat: Int? = nil
     ) {
         self.id = id
         self.name = name
@@ -159,6 +198,42 @@ struct DietItemEntry: Identifiable, Codable, Equatable {
         self.fat = fat
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case id, name, quantity, calories, protein, carbs, fat
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        quantity = try container.decode(String.self, forKey: .quantity)
+        calories = DietItemEntry.decodeInt(from: container, key: .calories)
+        protein = DietItemEntry.decodeInt(from: container, key: .protein)
+        carbs = DietItemEntry.decodeInt(from: container, key: .carbs)
+        fat = DietItemEntry.decodeInt(from: container, key: .fat)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(quantity, forKey: .quantity)
+        try container.encodeIfPresent(calories, forKey: .calories)
+        try container.encodeIfPresent(protein, forKey: .protein)
+        try container.encodeIfPresent(carbs, forKey: .carbs)
+        try container.encodeIfPresent(fat, forKey: .fat)
+    }
+
+    private static func decodeInt(from container: KeyedDecodingContainer<CodingKeys>, key: CodingKeys) -> Int? {
+        if let intValue = try? container.decodeIfPresent(Int.self, forKey: key) {
+            return intValue
+        }
+        if let doubleValue = try? container.decode(Double.self, forKey: key) {
+            return Int(ceil(doubleValue))
+        }
+        return nil
+    }
+
     var hasMacros: Bool {
         calories != nil || protein != nil || carbs != nil || fat != nil
     }
@@ -166,26 +241,18 @@ struct DietItemEntry: Identifiable, Codable, Equatable {
     var macrosSummary: String? {
         var components: [String] = []
         if let calories {
-            components.append(Self.format(calories) + " kcal")
+            components.append("\(calories) kcal")
         }
         if let protein {
-            components.append("P " + Self.format(protein) + " g")
+            components.append("P \(protein) g")
         }
         if let carbs {
-            components.append("C " + Self.format(carbs) + " g")
+            components.append("C \(carbs) g")
         }
         if let fat {
-            components.append("F " + Self.format(fat) + " g")
+            components.append("F \(fat) g")
         }
         return components.isEmpty ? nil : components.joined(separator: " • ")
-    }
-
-    private static func format(_ value: Double) -> String {
-        let rounded = (value * 10).rounded() / 10
-        if rounded.truncatingRemainder(dividingBy: 1) == 0 {
-            return String(format: "%.0f", rounded)
-        }
-        return String(format: "%.1f", rounded)
     }
 }
 
@@ -217,5 +284,23 @@ struct DietEntry: Identifiable, Codable, Equatable {
             }
             return components.joined(separator: " ")
         }.joined(separator: ", ")
+    }
+
+    func exportDictionary() -> [String: Any] {
+        [
+            "mealType": mealType.displayName,
+            "date": ISO8601DateFormatter().string(from: date),
+            "items": items.map { item -> [String: Any] in
+                var dict: [String: Any] = [
+                    "name": item.name,
+                    "quantity": item.quantity
+                ]
+                if let calories = item.calories { dict["calories"] = calories }
+                if let protein = item.protein { dict["protein"] = protein }
+                if let carbs = item.carbs { dict["carbs"] = carbs }
+                if let fat = item.fat { dict["fat"] = fat }
+                return dict
+            }
+        ]
     }
 }

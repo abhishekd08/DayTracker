@@ -151,6 +151,13 @@ private struct WorkoutLogView: View {
                 .disabled(!canExportEntries)
                 .accessibilityLabel("Export workouts JSON")
             }
+
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") {
+                    focusedField = nil
+                }
+            }
         }
         .sheet(item: $activeSheet) { destination in
             switch destination {
@@ -268,9 +275,9 @@ private struct WorkoutLogView: View {
                     Text("Reps")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    TextField("0", text: $repsText)
-                        .keyboardType(.numberPad)
-                        .focused($focusedField, equals: .reps)
+                TextField("0", text: $repsText)
+                    .keyboardType(.numberPad)
+                    .focused($focusedField, equals: .reps)
                         .textFieldStyle(.roundedBorder)
                 }
 
@@ -278,9 +285,9 @@ private struct WorkoutLogView: View {
                     Text("Sets")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    TextField("0", text: $setsText)
-                        .keyboardType(.numberPad)
-                        .focused($focusedField, equals: .sets)
+                TextField("0", text: $setsText)
+                    .keyboardType(.numberPad)
+                    .focused($focusedField, equals: .sets)
                         .textFieldStyle(.roundedBorder)
                 }
 
@@ -288,9 +295,9 @@ private struct WorkoutLogView: View {
                     Text("Weight (kg)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    TextField("Optional", text: $weightText)
-                        .keyboardType(.decimalPad)
-                        .focused($focusedField, equals: .weight)
+                TextField("Optional", text: $weightText)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .weight)
                         .textFieldStyle(.roundedBorder)
                 }
             }
@@ -449,6 +456,7 @@ private struct DietLogView: View {
     @State private var showMissingMacrosAlert = false
     @State private var missingMacrosFoods: [String] = []
     @State private var pendingMealItems: [DietItemEntry]?
+    @FocusState private var isMealInputFocused: Bool
 
     private enum ActiveSheet: Identifiable {
         case edit(DietEntry)
@@ -477,12 +485,32 @@ private struct DietLogView: View {
         var name: String
         var amount: Double
         var unit: FoodCatalogItem.PortionUnit
+        var calories: Int?
+        var protein: Int?
+        var carbs: Int?
+        var fat: Int?
+        var hasCatalogEntry: Bool
 
-        init(id: UUID = UUID(), name: String, amount: Double, unit: FoodCatalogItem.PortionUnit) {
+        init(
+            id: UUID = UUID(),
+            name: String,
+            amount: Double,
+            unit: FoodCatalogItem.PortionUnit,
+            calories: Int? = nil,
+            protein: Int? = nil,
+            carbs: Int? = nil,
+            fat: Int? = nil,
+            hasCatalogEntry: Bool = false
+        ) {
             self.id = id
             self.name = name
             self.amount = amount
             self.unit = unit
+            self.calories = calories
+            self.protein = protein
+            self.carbs = carbs
+            self.fat = fat
+            self.hasCatalogEntry = hasCatalogEntry
         }
     }
 
@@ -615,6 +643,13 @@ private struct DietLogView: View {
                 .disabled(!canExportEntries)
                 .accessibilityLabel("Export meals JSON")
             }
+
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") {
+                    isMealInputFocused = false
+                }
+            }
         }
         .sheet(item: $activeSheet) { destination in
             switch destination {
@@ -646,6 +681,22 @@ private struct DietLogView: View {
         } message: { message in
             Text(message)
         }
+        .alert("Missing macros", isPresented: $showMissingMacrosAlert) {
+            Button("Save Anyway") {
+                if let items = pendingMealItems {
+                    finalizeMealSave(with: items)
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingMealItems = nil
+            }
+        } message: {
+            if missingMacrosFoods.isEmpty {
+                Text("Some foods are missing macro information.")
+            } else {
+                Text("Add macros in the catalog for: \(missingMacrosFoods.joined(separator: ", ")) to calculate nutrition automatically.")
+            }
+        }
         .task {
             viewModel.load()
         }
@@ -658,6 +709,7 @@ private struct DietLogView: View {
         @Environment(\.dismiss) private var dismiss
         @State private var form: CatalogForm
         let onSave: (CatalogForm) -> Void
+        @FocusState private var isFieldFocused: Bool
 
         init(form: CatalogForm, onSave: @escaping (CatalogForm) -> Void) {
             _form = State(initialValue: form)
@@ -675,6 +727,7 @@ private struct DietLogView: View {
                     Section("Standard Portion") {
                         TextField("Amount", text: $form.portionAmount)
                             .keyboardType(.decimalPad)
+                            .focused($isFieldFocused)
                         Picker("Unit", selection: $form.unit) {
                             ForEach(FoodCatalogItem.PortionUnit.allCases) { unit in
                                 Text(unit.displayName).tag(unit)
@@ -685,12 +738,16 @@ private struct DietLogView: View {
                     Section("Macros per portion (optional)") {
                         TextField("Calories", text: $form.calories)
                             .keyboardType(.decimalPad)
+                            .focused($isFieldFocused)
                         TextField("Protein (g)", text: $form.protein)
                             .keyboardType(.decimalPad)
+                            .focused($isFieldFocused)
                         TextField("Carbs (g)", text: $form.carbs)
                             .keyboardType(.decimalPad)
+                            .focused($isFieldFocused)
                         TextField("Fat (g)", text: $form.fat)
                             .keyboardType(.decimalPad)
+                            .focused($isFieldFocused)
                     }
                 }
                 .navigationTitle("Add to Catalog")
@@ -704,6 +761,13 @@ private struct DietLogView: View {
                         Button("Save") {
                             onSave(form)
                             dismiss()
+                        }
+                    }
+
+                    ToolbarItemGroup(placement: .keyboard) {
+                        Spacer()
+                        Button("Done") {
+                            isFieldFocused = false
                         }
                     }
                 }
@@ -739,6 +803,7 @@ private struct DietLogView: View {
                         RoundedRectangle(cornerRadius: 14)
                             .stroke(Color(.separator), lineWidth: 1)
                     )
+                    .focused($isMealInputFocused)
                     .onChange(of: itemQuery, initial: false) { _, newValue in
                         let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
                         if let match = viewModel.catalogItem(named: trimmed) {
@@ -760,7 +825,7 @@ private struct DietLogView: View {
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(item.name)
                                                 .foregroundStyle(.primary)
-                                            Text("Standard: \(formatNumber(item.portionAmount)) \(item.unit.symbol)")
+                                            Text("Standard: \(formatNumber(Double(item.portionAmount))) \(item.unit.symbol)")
                                                 .font(.caption2)
                                                 .foregroundStyle(.secondary)
                                         }
@@ -814,6 +879,7 @@ private struct DietLogView: View {
                 TextField(amountPlaceholder, text: $quantityText)
                     .keyboardType(.decimalPad)
                     .textFieldStyle(.roundedBorder)
+                    .focused($isMealInputFocused)
             }
 
             Button {
@@ -970,13 +1036,20 @@ private struct DietLogView: View {
         }
         guard !name.isEmpty else { return }
 
-        let unit = viewModel.catalogItem(named: name)?.unit ?? .grams
+        let catalogItem = viewModel.catalogItem(named: name)
+        let unit = catalogItem?.unit ?? .grams
+        let scaledMacros = catalogItem?.scaledMacros(for: amount)
 
         mealItems.append(
             MealItemDraft(
                 name: name,
                 amount: amount,
-                unit: unit
+                unit: unit,
+                calories: scaledMacros?.calories,
+                protein: scaledMacros?.protein,
+                carbs: scaledMacros?.carbs,
+                fat: scaledMacros?.fat,
+                hasCatalogEntry: catalogItem != nil
             )
         )
         itemQuery = ""
@@ -1044,8 +1117,7 @@ private struct DietLogView: View {
     private func buildMealItems() -> [DietItemEntry] {
         mealItems.map { draft in
             let quantityString = formattedAmount(for: draft)
-            let macros = viewModel.catalogItem(named: draft.name)?.scaledMacros(for: draft.amount)
-                ?? (calories: nil, protein: nil, carbs: nil, fat: nil)
+            let macros = draftMacros(from: draft)
             return DietItemEntry(
                 name: draft.name,
                 quantity: quantityString,
@@ -1058,25 +1130,35 @@ private struct DietLogView: View {
     }
 
     private func macrosSummary(for draft: MealItemDraft) -> (text: String?, warning: String?) {
-        guard let item = viewModel.catalogItem(named: draft.name) else {
+        if !draft.hasCatalogEntry {
             return (nil, "Add this food to the catalog to calculate macros")
         }
-        let macros = item.scaledMacros(for: draft.amount)
+        let macros = draftMacros(from: draft)
         if let summary = formattedMacros(calories: macros.calories, protein: macros.protein, carbs: macros.carbs, fat: macros.fat) {
             return (summary, nil)
         }
-        if !item.hasMacros {
+        if !(viewModel.catalogItem(named: draft.name)?.hasMacros ?? false) {
             return (nil, "Macros not set for this food")
         }
         return (nil, nil)
     }
 
-    private func formattedMacros(calories: Double?, protein: Double?, carbs: Double?, fat: Double?) -> String? {
+    private func draftMacros(from draft: MealItemDraft) -> (calories: Int?, protein: Int?, carbs: Int?, fat: Int?) {
+        if draft.calories != nil || draft.protein != nil || draft.carbs != nil || draft.fat != nil {
+            return (draft.calories, draft.protein, draft.carbs, draft.fat)
+        }
+        if let item = viewModel.catalogItem(named: draft.name) {
+            return item.scaledMacros(for: draft.amount)
+        }
+        return (nil, nil, nil, nil)
+    }
+
+    private func formattedMacros(calories: Int?, protein: Int?, carbs: Int?, fat: Int?) -> String? {
         var parts: [String] = []
-        if let calories { parts.append("\(formatNumber(calories)) kcal") }
-        if let protein { parts.append("P \(formatNumber(protein)) g") }
-        if let carbs { parts.append("C \(formatNumber(carbs)) g") }
-        if let fat { parts.append("F \(formatNumber(fat)) g") }
+        if let calories { parts.append("\(calories) kcal") }
+        if let protein { parts.append("P \(protein) g") }
+        if let carbs { parts.append("C \(carbs) g") }
+        if let fat { parts.append("F \(fat) g") }
         return parts.isEmpty ? nil : parts.joined(separator: " • ")
     }
 
@@ -1103,17 +1185,33 @@ private struct DietLogView: View {
         let trimmedName = form.name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else { return }
         let rawPortion = Double(form.portionAmount.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 100
-        let portion = rawPortion > 0 ? rawPortion : 100
+        let clampedPortion = rawPortion > 0 ? rawPortion : 100
+        let portion = Int(ceil(clampedPortion))
         let item = FoodCatalogItem(
             name: trimmedName,
             portionAmount: portion,
             unit: form.unit,
-            calories: Self.parseDouble(form.calories),
-            protein: Self.parseDouble(form.protein),
-            carbs: Self.parseDouble(form.carbs),
-            fat: Self.parseDouble(form.fat)
+            calories: Self.parseInt(form.calories),
+            protein: Self.parseInt(form.protein),
+            carbs: Self.parseInt(form.carbs),
+            fat: Self.parseInt(form.fat)
         )
         viewModel.addCatalogItem(item)
+        mealItems = mealItems.map { draft in
+            guard draft.name.caseInsensitiveCompare(item.name) == .orderedSame else { return draft }
+            let scaled = item.scaledMacros(for: draft.amount)
+            return MealItemDraft(
+                id: draft.id,
+                name: draft.name,
+                amount: draft.amount,
+                unit: item.unit,
+                calories: scaled.calories,
+                protein: scaled.protein,
+                carbs: scaled.carbs,
+                fat: scaled.fat,
+                hasCatalogEntry: true
+            )
+        }
         selectedItem = item.name
         itemQuery = item.name
     }
@@ -1126,10 +1224,11 @@ private struct DietLogView: View {
         return String(format: "%.1f", rounded)
     }
 
-    private static func parseDouble(_ text: String) -> Double? {
+    private static func parseInt(_ text: String) -> Int? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        return Double(trimmed)
+        guard let value = Double(trimmed) else { return nil }
+        return Int(ceil(value))
     }
 }
 
