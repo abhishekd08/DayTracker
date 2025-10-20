@@ -1,5 +1,10 @@
 import Foundation
 
+struct WorkoutStorePayload: Codable {
+    var entries: [WorkoutEntry]
+    var catalog: [String]
+}
+
 final class WorkoutStore {
     private let fileURL: URL
     private let encoder = JSONEncoder()
@@ -23,17 +28,24 @@ final class WorkoutStore {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
 
-    func load() async throws -> [WorkoutEntry] {
+    func load() async throws -> WorkoutStorePayload {
         try await withCheckedThrowingContinuation { continuation in
             queue.async { [decoder, fileURL] in
                 do {
                     guard FileManager.default.fileExists(atPath: fileURL.path) else {
-                        continuation.resume(returning: [])
+                        continuation.resume(returning: WorkoutStorePayload(entries: [], catalog: ExerciseCatalog.exercises))
                         return
                     }
                     let data = try Data(contentsOf: fileURL)
-                    let entries = try decoder.decode([WorkoutEntry].self, from: data)
-                    continuation.resume(returning: entries.sorted { $0.date > $1.date })
+                    if let payload = try? decoder.decode(WorkoutStorePayload.self, from: data) {
+                        let sortedEntries = payload.entries.sorted { $0.date > $1.date }
+                        let normalizedCatalog = payload.catalog.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+                        let catalog = normalizedCatalog.isEmpty ? ExerciseCatalog.exercises : normalizedCatalog
+                        continuation.resume(returning: WorkoutStorePayload(entries: sortedEntries, catalog: catalog))
+                    } else {
+                        let entries = try decoder.decode([WorkoutEntry].self, from: data)
+                        continuation.resume(returning: WorkoutStorePayload(entries: entries.sorted { $0.date > $1.date }, catalog: ExerciseCatalog.exercises))
+                    }
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -41,12 +53,12 @@ final class WorkoutStore {
         }
     }
 
-    func save(_ entries: [WorkoutEntry]) async throws {
-        let snapshot = entries
+    func save(entries: [WorkoutEntry], catalog: [String]) async throws {
+        let payload = WorkoutStorePayload(entries: entries, catalog: catalog)
         try await withCheckedThrowingContinuation { continuation in
             queue.async { [encoder, fileURL] in
                 do {
-                    let data = try encoder.encode(snapshot)
+                    let data = try encoder.encode(payload)
                     try data.write(to: fileURL, options: [.atomic])
                     continuation.resume(returning: ())
                 } catch {
@@ -56,14 +68,11 @@ final class WorkoutStore {
         }
     }
 
-    func export(_ entries: [WorkoutEntry]) async throws -> URL {
+    func export(entries: [WorkoutEntry]) async throws -> URL {
         let snapshot = entries
         return try await withCheckedThrowingContinuation { continuation in
             queue.async { [encoder, fileURL] in
                 do {
-                    let data = try encoder.encode(snapshot)
-                    try data.write(to: fileURL, options: [.atomic])
-
                     let filename = "WorkoutLog-\(Self.exportFilenameFormatter.string(from: Date())).json"
                     let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
 
@@ -71,7 +80,8 @@ final class WorkoutStore {
                         try FileManager.default.removeItem(at: tempURL)
                     }
 
-                    try FileManager.default.copyItem(at: fileURL, to: tempURL)
+                    let data = try encoder.encode(snapshot)
+                    try data.write(to: tempURL, options: [.atomic])
                     continuation.resume(returning: tempURL)
                 } catch {
                     continuation.resume(throwing: error)

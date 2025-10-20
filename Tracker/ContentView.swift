@@ -56,7 +56,7 @@ private struct WorkoutLogView: View {
     @State private var setsText = ""
     @State private var weightText = ""
     @State private var activeSheet: ActiveSheet?
-    @State private var filterDate: Date?
+    @State private var filterRange: DateRange?
     @FocusState private var focusedField: Field?
 
     private enum Field: Hashable {
@@ -92,18 +92,26 @@ private struct WorkoutLogView: View {
         return formatter
     }()
 
-    private var filteredExercises: [String] {
-        ExerciseCatalog.matching(exerciseQuery)
-    }
-
     private var displayedEntries: [WorkoutEntry] {
-        guard let filterDate else { return viewModel.entries }
-        return viewModel.entries.filter { Calendar.current.isDate($0.date, inSameDayAs: filterDate) }
+        guard let range = filterRange else { return viewModel.entries }
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: range.start)
+        let endOfDayStart = calendar.startOfDay(for: range.end)
+        let endOfDay = calendar.date(byAdding: DateComponents(day: 1, second: -1), to: endOfDayStart) ?? endOfDayStart
+        return viewModel.entries.filter { entry in
+            (entry.date >= startOfDay) && (entry.date <= endOfDay)
+        }
     }
 
     private var filterDescription: String? {
-        guard let filterDate else { return nil }
-        return Self.filterFormatter.string(from: filterDate)
+        guard let range = filterRange else { return nil }
+        let formatter = Self.filterFormatter
+        let calendar = Calendar.current
+        let endDisplay = calendar.startOfDay(for: range.end)
+        if calendar.isDate(range.start, inSameDayAs: endDisplay) {
+            return formatter.string(from: range.start)
+        }
+        return "\(formatter.string(from: range.start)) – \(formatter.string(from: endDisplay))"
     }
 
     private var errorAlertBinding: Binding<Bool> {
@@ -140,20 +148,20 @@ private struct WorkoutLogView: View {
                 } label: {
                     Image(systemName: "square.and.arrow.up")
                 }
-                .disabled(viewModel.entries.isEmpty)
+                .disabled(!canExportEntries)
                 .accessibilityLabel("Export workouts JSON")
             }
         }
         .sheet(item: $activeSheet) { destination in
             switch destination {
             case .edit(let entry):
-                EditWorkoutEntryView(entry: entry) { updatedEntry in
+                EditWorkoutEntryView(entry: entry, catalog: viewModel.catalog) { updatedEntry in
                     viewModel.updateEntry(updatedEntry)
                 } onDelete: { entryToDelete in
                     viewModel.deleteEntry(entryToDelete)
                 }
             case .filter:
-                DateFilterSheet(selectedDate: $filterDate)
+                DateRangeFilterSheet(selectedRange: $filterRange)
             case .share(let file):
                 ShareSheet(activityItems: [file.url]) {
                     Task { @MainActor in
@@ -179,18 +187,30 @@ private struct WorkoutLogView: View {
                 .font(.headline)
 
             VStack(alignment: .leading, spacing: 8) {
+                let trimmedQuery = exerciseQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+
                 TextField("Search exercise", text: $exerciseQuery)
                     .textInputAutocapitalization(.words)
                     .disableAutocorrection(true)
+                    .padding(.vertical, 14)
+                    .padding(.horizontal, 16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(Color(.systemBackground))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(Color(.separator), lineWidth: 1)
+                    )
                     .onChange(of: exerciseQuery, initial: false) { _, newValue in
-                        if ExerciseCatalog.exercises.contains(where: { $0.caseInsensitiveCompare(newValue) == .orderedSame }) {
-                            selectedExercise = ExerciseCatalog.exercises.first { $0.caseInsensitiveCompare(newValue) == .orderedSame }
+                        if viewModel.catalog.contains(where: { $0.caseInsensitiveCompare(newValue) == .orderedSame }) {
+                            selectedExercise = viewModel.catalog.first { $0.caseInsensitiveCompare(newValue) == .orderedSame }
                         } else {
                             selectedExercise = nil
                         }
                     }
 
-                if !filteredExercises.isEmpty {
+                if !trimmedQuery.isEmpty && !filteredExercises.isEmpty {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 4) {
                             ForEach(filteredExercises, id: \.self) { name in
@@ -212,10 +232,34 @@ private struct WorkoutLogView: View {
                                     .background(Color(.secondarySystemBackground))
                                     .clipShape(RoundedRectangle(cornerRadius: 8))
                                 }
+                                .contextMenu {
+                                    Button(role: .destructive) {
+                                        viewModel.removeCatalogItem(named: name)
+                                        if selectedExercise == name {
+                                            selectedExercise = nil
+                                        }
+                                        if exerciseQuery.caseInsensitiveCompare(name) == .orderedSame {
+                                            exerciseQuery = ""
+                                        }
+                                    } label: {
+                                        Label("Remove exercise", systemImage: "trash")
+                                    }
+                                }
                             }
                         }
                     }
                     .frame(maxHeight: 140)
+                }
+
+                if !trimmedQuery.isEmpty && !viewModel.catalog.contains(where: { $0.caseInsensitiveCompare(trimmedQuery) == .orderedSame }) {
+                    Button {
+                        viewModel.addCatalogItem(named: trimmedQuery)
+                        selectedExercise = trimmedQuery
+                        exerciseQuery = trimmedQuery
+                    } label: {
+                        Label("Add \(trimmedQuery) to exercises", systemImage: "plus")
+                            .font(.subheadline)
+                    }
                 }
             }
 
@@ -302,11 +346,11 @@ private struct WorkoutLogView: View {
 
                 if displayedEntries.isEmpty {
                     VStack(spacing: 8) {
-                        Text("No workouts match this date")
+                        Text("No workouts match this range")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                         Button("Clear Filter") {
-                            filterDate = nil
+                            filterRange = nil
                         }
                         .buttonStyle(.borderless)
                     }
@@ -331,23 +375,31 @@ private struct WorkoutLogView: View {
         Button {
             activeSheet = .filter
         } label: {
-            Image(systemName: filterDate == nil ? "calendar" : "calendar.circle.fill")
+            Image(systemName: filterRange == nil ? "calendar" : "calendar.circle.fill")
                 .imageScale(.medium)
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(filterDate == nil ? Color.primary : Color.accentColor)
+                .foregroundStyle(filterRange == nil ? Color.primary : Color.accentColor)
         }
-        .accessibilityLabel(filterDate == nil ? "Filter history" : "Change date filter")
+        .accessibilityLabel(filterRange == nil ? "Filter history" : "Change date filter")
         .buttonStyle(.plain)
     }
 
     private func exportLog() {
         Task {
-            if let url = await viewModel.exportLog() {
+            let entriesToExport = entriesForExport
+            guard !entriesToExport.isEmpty else { return }
+            if let url = await viewModel.exportLog(entries: entriesToExport) {
                 await MainActor.run {
                     activeSheet = .share(ExportedFile(url: url))
                 }
             }
         }
+    }
+
+    private var filteredExercises: [String] {
+        let trimmed = exerciseQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return viewModel.catalog }
+        return viewModel.catalog.filter { $0.range(of: trimmed, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
     }
 
     private func addEntry() {
@@ -368,6 +420,17 @@ private struct WorkoutLogView: View {
         setsText = ""
         weightText = ""
         focusedField = nil
+    }
+
+    private var entriesForExport: [WorkoutEntry] {
+        if filterRange == nil {
+            return viewModel.entries
+        }
+        return displayedEntries
+    }
+
+    private var canExportEntries: Bool {
+        !entriesForExport.isEmpty
     }
 }
 

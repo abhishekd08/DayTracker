@@ -1,35 +1,65 @@
 import SwiftUI
 
-struct DateFilterSheet: View {
-    @Binding var selectedDate: Date?
-    @State private var proposedDate: Date
+struct DateRange: Equatable {
+    var start: Date
+    var end: Date
+}
+
+struct DateRangeFilterSheet: View {
+    @Binding var selectedRange: DateRange?
+    @State private var proposedStart: Date
+    @State private var proposedEnd: Date
     @Environment(\.dismiss) private var dismiss
 
-    init(selectedDate: Binding<Date?>) {
-        _selectedDate = selectedDate
-        _proposedDate = State(initialValue: selectedDate.wrappedValue ?? Date())
+    init(selectedRange: Binding<DateRange?>) {
+        _selectedRange = selectedRange
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        if let range = selectedRange.wrappedValue {
+            _proposedStart = State(initialValue: calendar.startOfDay(for: range.start))
+            _proposedEnd = State(initialValue: calendar.startOfDay(for: range.end))
+        } else {
+            _proposedStart = State(initialValue: today)
+            _proposedEnd = State(initialValue: today)
+        }
     }
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                DatePicker("Filter Date", selection: $proposedDate, displayedComponents: [.date])
+            Form {
+                Section("Start Date") {
+                    DatePicker(
+                        "Start",
+                        selection: $proposedStart,
+                        displayedComponents: [.date]
+                    )
                     .datePickerStyle(.graphical)
-                    .padding(.horizontal)
-
-                if selectedDate != nil {
-                    Button(role: .destructive) {
-                        selectedDate = nil
-                        dismiss()
-                    } label: {
-                        Label("Clear Filter", systemImage: "xmark.circle")
-                    }
+                    .labelsHidden()
                 }
 
-                Spacer()
+                Section("End Date") {
+                    DatePicker(
+                        "End",
+                        selection: $proposedEnd,
+                        in: proposedStart...,
+                        displayedComponents: [.date]
+                    )
+                    .datePickerStyle(.graphical)
+                    .labelsHidden()
+                }
+
+                if selectedRange != nil {
+                    Section {
+                        Button(role: .destructive) {
+                            selectedRange = nil
+                            dismiss()
+                        } label: {
+                            Label("Clear Filter", systemImage: "xmark.circle")
+                        }
+                    }
+                }
             }
-            .padding(.top)
-            .navigationTitle("Filter by Date")
+            .navigationTitle("Filter by Dates")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -38,7 +68,11 @@ struct DateFilterSheet: View {
 
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Apply") {
-                        selectedDate = proposedDate
+                        let calendar = Calendar.current
+                        let normalizedStart = calendar.startOfDay(for: proposedStart)
+                        let endStart = calendar.startOfDay(for: proposedEnd)
+                        let normalizedEnd = calendar.date(byAdding: DateComponents(day: 1, second: -1), to: endStart) ?? endStart
+                        selectedRange = DateRange(start: normalizedStart, end: normalizedEnd)
                         dismiss()
                     }
                 }
@@ -48,7 +82,7 @@ struct DateFilterSheet: View {
 }
 
 #Preview {
-    DateFilterSheet(selectedDate: .constant(Date()))
+    DateRangeFilterSheet(selectedRange: .constant(DateRange(start: Date(), end: Date())))
 }
 
 struct DietFilterSheet: View {

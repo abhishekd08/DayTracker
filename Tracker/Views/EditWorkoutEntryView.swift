@@ -6,6 +6,7 @@ struct EditWorkoutEntryView: View {
     @State private var weightText: String
     @FocusState private var focusedField: Field?
 
+    let catalog: [String]
     let onSave: (WorkoutEntry) -> Void
     let onDelete: (WorkoutEntry) -> Void
 
@@ -13,13 +14,14 @@ struct EditWorkoutEntryView: View {
         case weight
     }
 
-    init(entry: WorkoutEntry, onSave: @escaping (WorkoutEntry) -> Void, onDelete: @escaping (WorkoutEntry) -> Void) {
+    init(entry: WorkoutEntry, catalog: [String], onSave: @escaping (WorkoutEntry) -> Void, onDelete: @escaping (WorkoutEntry) -> Void) {
         _entry = State(initialValue: entry)
         if let weight = entry.weight {
             _weightText = State(initialValue: String(weight))
         } else {
             _weightText = State(initialValue: "")
         }
+        self.catalog = catalog
         self.onSave = onSave
         self.onDelete = onDelete
     }
@@ -29,7 +31,7 @@ struct EditWorkoutEntryView: View {
             Form {
                 Section("Exercise") {
                     Picker("Name", selection: $entry.exerciseName) {
-                        ForEach(ExerciseCatalog.exercises, id: \.self) { name in
+                        ForEach(catalog, id: \.self) { name in
                             Text(name).tag(name)
                         }
                     }
@@ -100,7 +102,8 @@ struct EditWorkoutEntryView: View {
 
 #Preview {
     EditWorkoutEntryView(
-        entry: WorkoutEntry(exerciseName: "Bench Press", reps: 8, sets: 4, weight: 60)
+        entry: WorkoutEntry(exerciseName: "Bench Press", reps: 8, sets: 4, weight: 60),
+        catalog: ExerciseCatalog.exercises
     ) { _ in } onDelete: { _ in }
 }
 
