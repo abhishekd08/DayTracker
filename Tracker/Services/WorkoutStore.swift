@@ -93,6 +93,11 @@ final class WorkoutStore {
 
 struct DietStorePayload: Codable {
     var entries: [DietEntry]
+    var catalog: [FoodCatalogItem]
+}
+
+private struct LegacyDietStorePayload: Codable {
+    var entries: [DietEntry]
     var catalog: [String]
 }
 
@@ -124,15 +129,23 @@ final class DietStore {
             queue.async { [decoder, fileURL] in
                 do {
                     guard FileManager.default.fileExists(atPath: fileURL.path) else {
-                        continuation.resume(returning: DietStorePayload(entries: [], catalog: ["Banana"]))
+                        continuation.resume(returning: DietStorePayload(entries: [], catalog: [FoodCatalogItem(name: "Banana")]))
                         return
                     }
 
                     let data = try Data(contentsOf: fileURL)
-                    let payload = try decoder.decode(DietStorePayload.self, from: data)
-                    let normalizedEntries = payload.entries.sorted { $0.date > $1.date }
-                    let sortedCatalog = payload.catalog.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-                    continuation.resume(returning: DietStorePayload(entries: normalizedEntries, catalog: sortedCatalog))
+                    if let payload = try? decoder.decode(DietStorePayload.self, from: data) {
+                        let normalizedEntries = payload.entries.sorted { $0.date > $1.date }
+                        let sortedCatalog = payload.catalog.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                        continuation.resume(returning: DietStorePayload(entries: normalizedEntries, catalog: sortedCatalog))
+                    } else {
+                        let legacy = try decoder.decode(LegacyDietStorePayload.self, from: data)
+                        let normalizedEntries = legacy.entries.sorted { $0.date > $1.date }
+                        let mappedCatalog = legacy.catalog.map { name in
+                            FoodCatalogItem(name: name)
+                        }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                        continuation.resume(returning: DietStorePayload(entries: normalizedEntries, catalog: mappedCatalog))
+                    }
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -140,7 +153,7 @@ final class DietStore {
         }
     }
 
-    func save(entries: [DietEntry], catalog: [String]) async throws {
+    func save(entries: [DietEntry], catalog: [FoodCatalogItem]) async throws {
         let payload = DietStorePayload(entries: entries, catalog: catalog)
         try await withCheckedThrowingContinuation { continuation in
             queue.async { [encoder, fileURL] in

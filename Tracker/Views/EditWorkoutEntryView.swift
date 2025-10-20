@@ -111,6 +111,13 @@ struct EditDietEntryView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var entry: DietEntry
     @State private var items: [DietItemEntry]
+    private static let numberFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.maximumFractionDigits = 1
+        formatter.minimumFractionDigits = 0
+        formatter.usesGroupingSeparator = false
+        return formatter
+    }()
 
     let onSave: (DietEntry) -> Void
     let onDelete: (DietEntry) -> Void
@@ -141,6 +148,18 @@ struct EditDietEntryView: View {
                             TextField("Quantity", text: $item.quantity)
                                 .textInputAutocapitalization(.sentences)
                                 .keyboardType(.default)
+                            HStack(spacing: 12) {
+                                TextField("Calories", text: numberBinding(for: $item.calories))
+                                    .keyboardType(.decimalPad)
+                                TextField("Protein (g)", text: numberBinding(for: $item.protein))
+                                    .keyboardType(.decimalPad)
+                            }
+                            HStack(spacing: 12) {
+                                TextField("Carbs (g)", text: numberBinding(for: $item.carbs))
+                                    .keyboardType(.decimalPad)
+                                TextField("Fat (g)", text: numberBinding(for: $item.fat))
+                                    .keyboardType(.decimalPad)
+                            }
                         }
                     }
                     .onDelete { indices in
@@ -189,13 +208,29 @@ struct EditDietEntryView: View {
         onSave(entry)
         dismiss()
     }
+
+    private func numberBinding(for value: Binding<Double?>) -> Binding<String> {
+        Binding(
+            get: {
+                guard let rawValue = value.wrappedValue else { return "" }
+                if let formatted = Self.numberFormatter.string(from: NSNumber(value: rawValue)) {
+                    return formatted
+                }
+                return String(rawValue)
+            },
+            set: { newText in
+                let trimmed = newText.trimmingCharacters(in: .whitespacesAndNewlines)
+                value.wrappedValue = trimmed.isEmpty ? nil : Double(trimmed)
+            }
+        )
+    }
 }
 
 #Preview("Diet Edit") {
     EditDietEntryView(
         entry: DietEntry(
             mealType: .dinner,
-            items: [DietItemEntry(name: "Paneer", quantity: "100 g")]
+            items: [DietItemEntry(name: "Paneer", quantity: "100 g", calories: 180, protein: 18, carbs: 6, fat: 10)]
         )
     ) { _ in } onDelete: { _ in }
 }

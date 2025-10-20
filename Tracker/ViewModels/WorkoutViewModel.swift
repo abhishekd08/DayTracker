@@ -89,7 +89,7 @@ final class WorkoutViewModel: ObservableObject {
 @MainActor
 final class DietViewModel: ObservableObject {
     @Published private(set) var entries: [DietEntry] = []
-    @Published private(set) var catalog: [String] = []
+    @Published private(set) var catalog: [FoodCatalogItem] = []
     @Published var errorMessage: String?
 
     private let store: DietStore
@@ -103,7 +103,7 @@ final class DietViewModel: ObservableObject {
             do {
                 let payload = try await store.load()
                 entries = payload.entries
-                catalog = payload.catalog
+                catalog = payload.catalog.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             } catch {
                 errorMessage = "Failed to load meals."
             }
@@ -129,18 +129,42 @@ final class DietViewModel: ObservableObject {
         persist()
     }
 
-    func addCatalogItem(named name: String) {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        guard !catalog.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) else { return }
-        catalog.append(trimmed)
-        catalog.sort { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    func addCatalogItem(_ item: FoodCatalogItem) {
+        let trimmedName = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+        if let index = catalog.firstIndex(where: { $0.name.caseInsensitiveCompare(trimmedName) == .orderedSame }) {
+            catalog[index] = FoodCatalogItem(
+                id: catalog[index].id,
+                name: trimmedName,
+                portionAmount: item.portionAmount,
+                unit: item.unit,
+                calories: item.calories,
+                protein: item.protein,
+                carbs: item.carbs,
+                fat: item.fat
+            )
+        } else {
+            catalog.append(FoodCatalogItem(
+                name: trimmedName,
+                portionAmount: item.portionAmount,
+                unit: item.unit,
+                calories: item.calories,
+                protein: item.protein,
+                carbs: item.carbs,
+                fat: item.fat
+            ))
+        }
+        catalog.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         persist()
     }
 
     func removeCatalogItem(named name: String) {
-        catalog.removeAll { $0.caseInsensitiveCompare(name) == .orderedSame }
+        catalog.removeAll { $0.name.caseInsensitiveCompare(name) == .orderedSame }
         persist()
+    }
+
+    func catalogItem(named name: String) -> FoodCatalogItem? {
+        catalog.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }
     }
 
     func exportLog(entries: [DietEntry]) async -> URL? {

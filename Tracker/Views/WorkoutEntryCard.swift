@@ -63,13 +63,24 @@ struct DietEntryCard: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(entry.items) { item in
-                    HStack {
-                        Text(item.name)
-                            .font(.subheadline)
-                        Spacer()
-                        Text(item.quantity)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(item.name)
+                                .font(.subheadline)
+                            Spacer()
+                            Text(item.quantity)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        if let summary = item.macrosSummary {
+                            Text(summary)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else if !item.hasMacros {
+                            Text("Macros not set")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
                     }
                 }
             }
@@ -87,8 +98,8 @@ struct DietEntryCard: View {
         entry: DietEntry(
             mealType: .lunch,
             items: [
-                DietItemEntry(name: "Paneer", quantity: "80 g"),
-                DietItemEntry(name: "Rice", quantity: "120 g")
+                DietItemEntry(name: "Paneer", quantity: "80 g", calories: 180, protein: 18, carbs: 6, fat: 10),
+                DietItemEntry(name: "Rice", quantity: "120 g", calories: 150, protein: 3, carbs: 32, fat: 1.5)
             ]
         )
     )

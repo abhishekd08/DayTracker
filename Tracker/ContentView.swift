@@ -445,6 +445,10 @@ private struct DietLogView: View {
     @State private var activeSheet: ActiveSheet?
     @State private var filterRange: DateRange?
     @State private var filterMealType: MealType?
+    @State private var catalogForm: CatalogForm?
+    @State private var showMissingMacrosAlert = false
+    @State private var missingMacrosFoods: [String] = []
+    @State private var pendingMealItems: [DietItemEntry]?
 
     private enum ActiveSheet: Identifiable {
         case edit(DietEntry)
@@ -471,13 +475,26 @@ private struct DietLogView: View {
     private struct MealItemDraft: Identifiable, Equatable {
         let id: UUID
         var name: String
-        var quantity: String
+        var amount: Double
+        var unit: FoodCatalogItem.PortionUnit
 
-        init(id: UUID = UUID(), name: String, quantity: String) {
+        init(id: UUID = UUID(), name: String, amount: Double, unit: FoodCatalogItem.PortionUnit) {
             self.id = id
             self.name = name
-            self.quantity = quantity
+            self.amount = amount
+            self.unit = unit
         }
+    }
+
+    private struct CatalogForm: Identifiable {
+        let id = UUID()
+        var name: String
+        var portionAmount: String = "100"
+        var unit: FoodCatalogItem.PortionUnit = .grams
+        var calories: String = ""
+        var protein: String = ""
+        var carbs: String = ""
+        var fat: String = ""
     }
 
     private static let dateFormatter: DateFormatter = {
@@ -508,10 +525,10 @@ private struct DietLogView: View {
         }
     }
 
-    private var filteredCatalog: [String] {
+    private var filteredCatalog: [FoodCatalogItem] {
         let trimmed = itemQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return viewModel.catalog }
-        return viewModel.catalog.filter { $0.range(of: trimmed, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
+        return viewModel.catalog.filter { $0.name.range(of: trimmed, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
     }
 
     private var displayedEntries: [DietEntry] {
@@ -556,12 +573,20 @@ private struct DietLogView: View {
     }
 
     private var canAddItem: Bool {
-        let trimmedQuantity = quantityText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let selectedItem {
-            return !trimmedQuantity.isEmpty && !mealItems.contains(where: { $0.name.caseInsensitiveCompare(selectedItem) == .orderedSame })
+        guard let amount = Double(quantityText.trimmingCharacters(in: .whitespacesAndNewlines)), amount > 0 else {
+            return false
         }
-        let trimmedQuery = itemQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !trimmedQuery.isEmpty && !trimmedQuantity.isEmpty && !mealItems.contains(where: { $0.name.caseInsensitiveCompare(trimmedQuery) == .orderedSame })
+
+        let name: String
+        if let selectedItem {
+            name = selectedItem
+        } else {
+            let trimmedQuery = itemQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedQuery.isEmpty else { return false }
+            name = trimmedQuery
+        }
+
+        return !mealItems.contains { $0.name.caseInsensitiveCompare(name) == .orderedSame }
     }
 
     private var canSaveMeal: Bool {
@@ -610,6 +635,12 @@ private struct DietLogView: View {
                 }
             }
         }
+        .sheet(item: $catalogForm) { form in
+            CatalogItemSheet(form: form) { updatedForm in
+                handleCatalogSave(updatedForm)
+                catalogForm = nil
+            }
+        }
         .alert("Error", isPresented: errorAlertBinding, presenting: viewModel.errorMessage) { _ in
             Button("OK", role: .cancel) {}
         } message: { message in
@@ -620,6 +651,63 @@ private struct DietLogView: View {
         }
         .onAppear {
             mealType = Self.defaultMealType(for: Date())
+        }
+    }
+
+    private struct CatalogItemSheet: View {
+        @Environment(\.dismiss) private var dismiss
+        @State private var form: CatalogForm
+        let onSave: (CatalogForm) -> Void
+
+        init(form: CatalogForm, onSave: @escaping (CatalogForm) -> Void) {
+            _form = State(initialValue: form)
+            self.onSave = onSave
+        }
+
+        var body: some View {
+            NavigationStack {
+                Form {
+                    Section("Food") {
+                        Text(form.name)
+                            .font(.headline)
+                    }
+
+                    Section("Standard Portion") {
+                        TextField("Amount", text: $form.portionAmount)
+                            .keyboardType(.decimalPad)
+                        Picker("Unit", selection: $form.unit) {
+                            ForEach(FoodCatalogItem.PortionUnit.allCases) { unit in
+                                Text(unit.displayName).tag(unit)
+                            }
+                        }
+                    }
+
+                    Section("Macros per portion (optional)") {
+                        TextField("Calories", text: $form.calories)
+                            .keyboardType(.decimalPad)
+                        TextField("Protein (g)", text: $form.protein)
+                            .keyboardType(.decimalPad)
+                        TextField("Carbs (g)", text: $form.carbs)
+                            .keyboardType(.decimalPad)
+                        TextField("Fat (g)", text: $form.fat)
+                            .keyboardType(.decimalPad)
+                    }
+                }
+                .navigationTitle("Add to Catalog")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { dismiss() }
+                    }
+
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Save") {
+                            onSave(form)
+                            dismiss()
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -652,8 +740,9 @@ private struct DietLogView: View {
                             .stroke(Color(.separator), lineWidth: 1)
                     )
                     .onChange(of: itemQuery, initial: false) { _, newValue in
-                        if viewModel.catalog.contains(where: { $0.caseInsensitiveCompare(newValue) == .orderedSame }) {
-                            selectedItem = viewModel.catalog.first { $0.caseInsensitiveCompare(newValue) == .orderedSame }
+                        let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if let match = viewModel.catalogItem(named: trimmed) {
+                            selectedItem = match.name
                         } else {
                             selectedItem = nil
                         }
@@ -662,16 +751,21 @@ private struct DietLogView: View {
                 if !trimmedQuery.isEmpty && !filteredCatalog.isEmpty {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 4) {
-                            ForEach(filteredCatalog, id: \.self) { name in
+                            ForEach(filteredCatalog) { item in
                                 Button {
-                                    selectedItem = name
-                                    itemQuery = name
+                                    selectedItem = item.name
+                                    itemQuery = item.name
                                 } label: {
                                     HStack {
-                                        Text(name)
-                                            .foregroundStyle(.primary)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(item.name)
+                                                .foregroundStyle(.primary)
+                                            Text("Standard: \(formatNumber(item.portionAmount)) \(item.unit.symbol)")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                        }
                                         Spacer()
-                                        if selectedItem == name {
+                                        if let selectedItem, selectedItem.caseInsensitiveCompare(item.name) == .orderedSame {
                                             Image(systemName: "checkmark.circle.fill")
                                                 .foregroundStyle(Color.accentColor)
                                         }
@@ -683,8 +777,8 @@ private struct DietLogView: View {
                                 }
                                 .contextMenu {
                                     Button(role: .destructive) {
-                                        viewModel.removeCatalogItem(named: name)
-                                        if selectedItem == name {
+                                        viewModel.removeCatalogItem(named: item.name)
+                                        if let currentSelection = selectedItem, currentSelection.caseInsensitiveCompare(item.name) == .orderedSame {
                                             selectedItem = nil
                                             itemQuery = ""
                                         }
@@ -698,11 +792,14 @@ private struct DietLogView: View {
                     .frame(maxHeight: 140)
                 }
 
-                if !trimmedQuery.isEmpty && !viewModel.catalog.contains(where: { $0.caseInsensitiveCompare(trimmedQuery) == .orderedSame }) {
+                if !trimmedQuery.isEmpty && !catalogContains(trimmedQuery) {
                     Button {
-                        viewModel.addCatalogItem(named: trimmedQuery)
-                        selectedItem = trimmedQuery
-                        itemQuery = trimmedQuery
+                        let defaultPortion = quantityText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        catalogForm = CatalogForm(
+                            name: trimmedQuery,
+                            portionAmount: defaultPortion.isEmpty ? "100" : defaultPortion,
+                            unit: currentPortionUnit
+                        )
                     } label: {
                         Label("Add \(trimmedQuery) to catalog", systemImage: "plus")
                             .font(.subheadline)
@@ -711,10 +808,11 @@ private struct DietLogView: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Quantity")
+                Text("Amount")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                TextField("e.g. 80 g", text: $quantityText)
+                TextField(amountPlaceholder, text: $quantityText)
+                    .keyboardType(.decimalPad)
                     .textFieldStyle(.roundedBorder)
             }
 
@@ -734,14 +832,24 @@ private struct DietLogView: View {
                         .font(.subheadline)
                         .fontWeight(.semibold)
                     ForEach(mealItems) { draft in
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text(draft.name)
-                                    .font(.body)
-                                Text(draft.quantity)
-                                    .font(.caption)
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(draft.name)
+                                .font(.body)
+                            Text(formattedAmount(for: draft))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            let macroInfo = macrosSummary(for: draft)
+                            if let summary = macroInfo.text {
+                                Text(summary)
+                                    .font(.caption2)
                                     .foregroundStyle(.secondary)
+                            } else if let warning = macroInfo.warning {
+                                Text(warning)
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
                             }
+                        }
                             Spacer()
                             Button(role: .destructive) {
                                 mealItems.removeAll { $0.id == draft.id }
@@ -851,8 +959,9 @@ private struct DietLogView: View {
     }
 
     private func addItemToMeal() {
-        let quantity = quantityText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !quantity.isEmpty else { return }
+        let trimmedAmount = quantityText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let amount = Double(trimmedAmount), amount > 0 else { return }
+
         let name: String
         if let selectedItem {
             name = selectedItem
@@ -860,7 +969,16 @@ private struct DietLogView: View {
             name = itemQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         guard !name.isEmpty else { return }
-        mealItems.append(MealItemDraft(name: name, quantity: quantity))
+
+        let unit = viewModel.catalogItem(named: name)?.unit ?? .grams
+
+        mealItems.append(
+            MealItemDraft(
+                name: name,
+                amount: amount,
+                unit: unit
+            )
+        )
         itemQuery = ""
         selectedItem = nil
         quantityText = ""
@@ -868,13 +986,32 @@ private struct DietLogView: View {
 
     private func addMeal() {
         guard canSaveMeal else { return }
-        let items = mealItems.map { DietItemEntry(name: $0.name, quantity: $0.quantity) }
+        let items = buildMealItems()
+        let foodsMissingMacros = Set(mealItems.compactMap { draft -> String? in
+            let info = macrosSummary(for: draft)
+            return info.warning != nil ? draft.name : nil
+        })
+
+        if !foodsMissingMacros.isEmpty {
+            missingMacrosFoods = foodsMissingMacros.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            pendingMealItems = items
+            showMissingMacrosAlert = true
+            return
+        }
+
+        finalizeMealSave(with: items)
+    }
+
+    private func finalizeMealSave(with items: [DietItemEntry]) {
         viewModel.addEntry(mealType: mealType, items: items)
         mealItems = []
         quantityText = ""
         itemQuery = ""
         selectedItem = nil
         mealType = Self.defaultMealType(for: Date())
+        pendingMealItems = nil
+        missingMacrosFoods = []
+        showMissingMacrosAlert = false
     }
 
     private func exportLog() {
@@ -898,6 +1035,101 @@ private struct DietLogView: View {
 
     private var canExportEntries: Bool {
         !entriesForExport.isEmpty
+    }
+
+    private func formattedAmount(for draft: MealItemDraft) -> String {
+        "\(formatNumber(draft.amount)) \(draft.unit.symbol)"
+    }
+
+    private func buildMealItems() -> [DietItemEntry] {
+        mealItems.map { draft in
+            let quantityString = formattedAmount(for: draft)
+            let macros = viewModel.catalogItem(named: draft.name)?.scaledMacros(for: draft.amount)
+                ?? (calories: nil, protein: nil, carbs: nil, fat: nil)
+            return DietItemEntry(
+                name: draft.name,
+                quantity: quantityString,
+                calories: macros.calories,
+                protein: macros.protein,
+                carbs: macros.carbs,
+                fat: macros.fat
+            )
+        }
+    }
+
+    private func macrosSummary(for draft: MealItemDraft) -> (text: String?, warning: String?) {
+        guard let item = viewModel.catalogItem(named: draft.name) else {
+            return (nil, "Add this food to the catalog to calculate macros")
+        }
+        let macros = item.scaledMacros(for: draft.amount)
+        if let summary = formattedMacros(calories: macros.calories, protein: macros.protein, carbs: macros.carbs, fat: macros.fat) {
+            return (summary, nil)
+        }
+        if !item.hasMacros {
+            return (nil, "Macros not set for this food")
+        }
+        return (nil, nil)
+    }
+
+    private func formattedMacros(calories: Double?, protein: Double?, carbs: Double?, fat: Double?) -> String? {
+        var parts: [String] = []
+        if let calories { parts.append("\(formatNumber(calories)) kcal") }
+        if let protein { parts.append("P \(formatNumber(protein)) g") }
+        if let carbs { parts.append("C \(formatNumber(carbs)) g") }
+        if let fat { parts.append("F \(formatNumber(fat)) g") }
+        return parts.isEmpty ? nil : parts.joined(separator: " • ")
+    }
+
+    private func catalogContains(_ name: String) -> Bool {
+        viewModel.catalog.contains { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+    }
+
+    private var currentPortionUnit: FoodCatalogItem.PortionUnit {
+        if let selectedItem, let item = viewModel.catalogItem(named: selectedItem) {
+            return item.unit
+        }
+        let trimmedQuery = itemQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let item = viewModel.catalogItem(named: trimmedQuery) {
+            return item.unit
+        }
+        return .grams
+    }
+
+    private var amountPlaceholder: String {
+        "Amount (\(currentPortionUnit.symbol))"
+    }
+
+    private func handleCatalogSave(_ form: CatalogForm) {
+        let trimmedName = form.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+        let rawPortion = Double(form.portionAmount.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 100
+        let portion = rawPortion > 0 ? rawPortion : 100
+        let item = FoodCatalogItem(
+            name: trimmedName,
+            portionAmount: portion,
+            unit: form.unit,
+            calories: Self.parseDouble(form.calories),
+            protein: Self.parseDouble(form.protein),
+            carbs: Self.parseDouble(form.carbs),
+            fat: Self.parseDouble(form.fat)
+        )
+        viewModel.addCatalogItem(item)
+        selectedItem = item.name
+        itemQuery = item.name
+    }
+
+    private func formatNumber(_ value: Double) -> String {
+        let rounded = (value * 10).rounded() / 10
+        if rounded.truncatingRemainder(dividingBy: 1) == 0 {
+            return String(format: "%.0f", rounded)
+        }
+        return String(format: "%.1f", rounded)
+    }
+
+    private static func parseDouble(_ text: String) -> Double? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return Double(trimmed)
     }
 }
 

@@ -60,15 +60,132 @@ enum MealType: String, Codable, CaseIterable, Identifiable {
 }
 }
 
+struct FoodCatalogItem: Identifiable, Codable, Equatable {
+    enum PortionUnit: String, Codable, CaseIterable, Identifiable {
+        case grams
+        case milliliters
+
+        var id: String { rawValue }
+
+        var displayName: String {
+            switch self {
+            case .grams:
+                return "Grams (g)"
+            case .milliliters:
+                return "Milliliters (mL)"
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .grams:
+                return "g"
+            case .milliliters:
+                return "mL"
+            }
+        }
+    }
+
+    let id: UUID
+    var name: String
+    var portionAmount: Double
+    var unit: PortionUnit
+    var calories: Double?
+    var protein: Double?
+    var carbs: Double?
+    var fat: Double?
+    var hasMacros: Bool {
+        calories != nil || protein != nil || carbs != nil || fat != nil
+    }
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        portionAmount: Double = 100,
+        unit: PortionUnit = .grams,
+        calories: Double? = nil,
+        protein: Double? = nil,
+        carbs: Double? = nil,
+        fat: Double? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.portionAmount = portionAmount
+        self.unit = unit
+        self.calories = calories
+        self.protein = protein
+        self.carbs = carbs
+        self.fat = fat
+    }
+
+    func scaledMacros(for amount: Double) -> (calories: Double?, protein: Double?, carbs: Double?, fat: Double?) {
+        guard portionAmount > 0 else {
+            return (calories, protein, carbs, fat)
+        }
+        let scale = amount / portionAmount
+        return (
+            calories.map { $0 * scale },
+            protein.map { $0 * scale },
+            carbs.map { $0 * scale },
+            fat.map { $0 * scale }
+        )
+    }
+}
+
 struct DietItemEntry: Identifiable, Codable, Equatable {
     let id: UUID
     var name: String
     var quantity: String
+    var calories: Double?
+    var protein: Double?
+    var carbs: Double?
+    var fat: Double?
 
-    init(id: UUID = UUID(), name: String, quantity: String) {
+    init(
+        id: UUID = UUID(),
+        name: String,
+        quantity: String,
+        calories: Double? = nil,
+        protein: Double? = nil,
+        carbs: Double? = nil,
+        fat: Double? = nil
+    ) {
         self.id = id
         self.name = name
         self.quantity = quantity
+        self.calories = calories
+        self.protein = protein
+        self.carbs = carbs
+        self.fat = fat
+    }
+
+    var hasMacros: Bool {
+        calories != nil || protein != nil || carbs != nil || fat != nil
+    }
+
+    var macrosSummary: String? {
+        var components: [String] = []
+        if let calories {
+            components.append(Self.format(calories) + " kcal")
+        }
+        if let protein {
+            components.append("P " + Self.format(protein) + " g")
+        }
+        if let carbs {
+            components.append("C " + Self.format(carbs) + " g")
+        }
+        if let fat {
+            components.append("F " + Self.format(fat) + " g")
+        }
+        return components.isEmpty ? nil : components.joined(separator: " • ")
+    }
+
+    private static func format(_ value: Double) -> String {
+        let rounded = (value * 10).rounded() / 10
+        if rounded.truncatingRemainder(dividingBy: 1) == 0 {
+            return String(format: "%.0f", rounded)
+        }
+        return String(format: "%.1f", rounded)
     }
 }
 
@@ -93,6 +210,12 @@ struct DietEntry: Identifiable, Codable, Equatable {
     }
 
     var summaryLine: String {
-        items.map { "\($0.name) \($0.quantity)" }.joined(separator: ", ")
+        items.map { item in
+            var components: [String] = ["\(item.name) \(item.quantity)"]
+            if let summary = item.macrosSummary {
+                components.append("(\(summary))")
+            }
+            return components.joined(separator: " ")
+        }.joined(separator: ", ")
     }
 }
