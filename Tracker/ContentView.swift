@@ -4,46 +4,82 @@ import SwiftUI
 struct ContentView: View {
     var body: some View {
         NavigationStack {
-            VStack(spacing: 24) {
-                Spacer(minLength: 40)
+            GeometryReader { proxy in
+                let spacing: CGFloat = 24
+                let verticalPadding: CGFloat = 32
+                let availableHeight = max(proxy.size.height - (verticalPadding * 2) - spacing, 0)
+                let cardHeight = availableHeight > 0 ? availableHeight / 2 : proxy.size.height / 2
 
-                NavigationLink {
-                    WorkoutLogView()
-                } label: {
-                    selectionCard(title: "Workout", subtitle: "Log sets, reps, and weights", systemImage: "dumbbell.fill")
+                ZStack {
+                    Color(.systemGroupedBackground)
+                        .ignoresSafeArea()
+
+                    VStack(spacing: spacing) {
+                        NavigationLink {
+                            WorkoutLogView()
+                        } label: {
+                            selectionCard(title: "Workout", subtitle: "Log sets, reps, and weights", systemImage: "dumbbell.fill")
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: cardHeight)
+
+                        NavigationLink {
+                            DietLogView()
+                        } label: {
+                            selectionCard(title: "Diet", subtitle: "Track meals and portions", systemImage: "fork.knife")
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: cardHeight)
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, verticalPadding)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                 }
-
-                NavigationLink {
-                    DietLogView()
-                } label: {
-                    selectionCard(title: "Diet", subtitle: "Track meals and portions", systemImage: "fork.knife")
-                }
-
-                Spacer()
             }
-            .padding(24)
             .navigationTitle("Day Tracker")
-            .background(Color(.systemGroupedBackground))
         }
     }
 
     private func selectionCard(title: String, subtitle: String, systemImage: String) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.system(size: 40))
-                .foregroundStyle(.tint)
-            Text(title)
-                .font(.title2)
-                .fontWeight(.semibold)
-            Text(subtitle)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+        let baseColor: Color
+        switch systemImage {
+        case "dumbbell.fill":
+            baseColor = .indigo
+        case "fork.knife":
+            baseColor = .mint
+        default:
+            baseColor = .accentColor
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.thinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
-        .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 8)
+
+        return VStack(alignment: .leading, spacing: 18) {
+            Image(systemName: systemImage)
+                .font(.system(size: 52, weight: .semibold))
+                .foregroundStyle(baseColor)
+
+            Text(title)
+                .font(.largeTitle)
+                .fontWeight(.bold)
+
+            Text(subtitle)
+                .font(.headline)
+                .foregroundStyle(.secondary)
+
+            Spacer(minLength: 0)
+        }
+        .padding(28)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(Color(.secondarySystemBackground))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .stroke(baseColor.opacity(0.18), lineWidth: 1)
+        )
     }
 }
 
@@ -57,7 +93,11 @@ private struct WorkoutLogView: View {
     @State private var weightText = ""
     @State private var activeSheet: ActiveSheet?
     @State private var filterRange: DateRange?
+    @State private var isSelectingEntries = false
+    @State private var selectedEntryIDs: Set<UUID> = []
+    @State private var showDeleteConfirmation = false
     @FocusState private var focusedField: Field?
+    @FocusState private var isExerciseSearchFocused: Bool
 
     private enum Field: Hashable {
         case reps, sets, weight
@@ -142,11 +182,33 @@ private struct WorkoutLogView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Workout Log")
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if isSelectingEntries && !selectedEntryIDs.isEmpty {
+                    Button(role: .destructive) {
+                        showDeleteConfirmation = true
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .accessibilityLabel("Delete selected workouts")
+                }
+
+                if !viewModel.entries.isEmpty || isSelectingEntries {
+                    Button {
+                        toggleWorkoutSelectionMode()
+                    } label: {
+                        Image(systemName: isSelectingEntries ? "xmark.circle" : "checkmark.circle")
+                            .imageScale(.large)
+                            .symbolRenderingMode(.hierarchical)
+                    }
+                    .accessibilityLabel(isSelectingEntries ? "Cancel selection" : "Select workouts")
+                }
+
                 Button {
                     exportLog()
                 } label: {
                     Image(systemName: "square.and.arrow.up")
+                        .imageScale(.large)
+                        .symbolRenderingMode(.hierarchical)
                 }
                 .disabled(!canExportEntries)
                 .accessibilityLabel("Export workouts JSON")
@@ -156,6 +218,7 @@ private struct WorkoutLogView: View {
                 Spacer()
                 Button("Done") {
                     focusedField = nil
+                    isExerciseSearchFocused = false
                 }
             }
         }
@@ -178,6 +241,18 @@ private struct WorkoutLogView: View {
                 }
             }
         }
+        .confirmationDialog(
+            "Delete selected workouts?",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                deleteSelectedWorkouts()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will remove \(selectedEntryIDs.count) workout\(selectedEntryIDs.count == 1 ? "" : "s").")
+        }
         .alert("Error", isPresented: errorAlertBinding, presenting: viewModel.errorMessage) { _ in
             Button("OK", role: .cancel) {}
         } message: { message in
@@ -196,26 +271,7 @@ private struct WorkoutLogView: View {
             VStack(alignment: .leading, spacing: 8) {
                 let trimmedQuery = exerciseQuery.trimmingCharacters(in: .whitespacesAndNewlines)
 
-                TextField("Search exercise", text: $exerciseQuery)
-                    .textInputAutocapitalization(.words)
-                    .disableAutocorrection(true)
-                    .padding(.vertical, 14)
-                    .padding(.horizontal, 16)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14)
-                            .fill(Color(.systemBackground))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14)
-                            .stroke(Color(.separator), lineWidth: 1)
-                    )
-                    .onChange(of: exerciseQuery, initial: false) { _, newValue in
-                        if viewModel.catalog.contains(where: { $0.caseInsensitiveCompare(newValue) == .orderedSame }) {
-                            selectedExercise = viewModel.catalog.first { $0.caseInsensitiveCompare(newValue) == .orderedSame }
-                        } else {
-                            selectedExercise = nil
-                        }
-                    }
+                exerciseSearchField()
 
                 if !trimmedQuery.isEmpty && !filteredExercises.isEmpty {
                     ScrollView {
@@ -367,15 +423,35 @@ private struct WorkoutLogView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                 } else {
                     ForEach(displayedEntries) { entry in
-                        Button {
-                            activeSheet = .edit(entry)
-                        } label: {
-                            WorkoutEntryCard(entry: entry)
-                        }
+                        workoutHistoryRow(for: entry)
                     }
                 }
             }
         }
+    }
+
+    private func workoutHistoryRow(for entry: WorkoutEntry) -> some View {
+        let isSelected = selectedEntryIDs.contains(entry.id)
+        return WorkoutEntryCard(entry: entry)
+            .overlay {
+                if isSelectingEntries && isSelected {
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.accentColor.opacity(0.7), lineWidth: 2)
+                }
+            }
+            .padding(.leading, isSelectingEntries ? 36 : 0)
+            .overlay(alignment: .leading) {
+                if isSelectingEntries {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.title3)
+                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                        .padding(.leading, 4)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                handleWorkoutEntryTap(entry)
+            }
     }
 
     private var filterButton: some View {
@@ -389,6 +465,73 @@ private struct WorkoutLogView: View {
         }
         .accessibilityLabel(filterRange == nil ? "Filter history" : "Change date filter")
         .buttonStyle(.plain)
+    }
+
+    private func handleWorkoutEntryTap(_ entry: WorkoutEntry) {
+        if isSelectingEntries {
+            toggleWorkoutSelection(for: entry)
+        } else {
+            activeSheet = .edit(entry)
+        }
+    }
+
+    private func toggleWorkoutSelection(for entry: WorkoutEntry) {
+        if selectedEntryIDs.contains(entry.id) {
+            selectedEntryIDs.remove(entry.id)
+        } else {
+            selectedEntryIDs.insert(entry.id)
+        }
+    }
+
+    private func toggleWorkoutSelectionMode() {
+        if isSelectingEntries {
+            resetWorkoutSelection()
+        } else {
+            selectedEntryIDs.removeAll()
+            isSelectingEntries = true
+        }
+    }
+
+    private func resetWorkoutSelection() {
+        selectedEntryIDs.removeAll()
+        isSelectingEntries = false
+    }
+
+    private func deleteSelectedWorkouts() {
+        viewModel.deleteEntries(withIDs: selectedEntryIDs)
+        resetWorkoutSelection()
+    }
+
+    @ViewBuilder
+    private func exerciseSearchField() -> some View {
+        ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(.systemBackground))
+
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color(.quaternaryLabel), lineWidth: 1)
+
+            TextField("Search exercise", text: $exerciseQuery)
+                .textInputAutocapitalization(.words)
+                .disableAutocorrection(true)
+                .padding(.vertical, 14)
+                .padding(.horizontal, 18)
+                .focused($isExerciseSearchFocused)
+                .onChange(of: exerciseQuery, initial: false) { _, newValue in
+                    let trimmedValue = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if let match = viewModel.catalog.first(where: { $0.caseInsensitiveCompare(trimmedValue) == .orderedSame }) {
+                        selectedExercise = match
+                    } else {
+                        selectedExercise = nil
+                    }
+                }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            isExerciseSearchFocused = true
+        }
     }
 
     private func exportLog() {
@@ -427,6 +570,7 @@ private struct WorkoutLogView: View {
         setsText = ""
         weightText = ""
         focusedField = nil
+        isExerciseSearchFocused = false
     }
 
     private var entriesForExport: [WorkoutEntry] {
@@ -453,6 +597,9 @@ private struct DietLogView: View {
     @State private var filterRange: DateRange?
     @State private var filterMealType: MealType?
     @State private var catalogForm: CatalogForm?
+    @State private var isSelectingEntries = false
+    @State private var selectedEntryIDs: Set<UUID> = []
+    @State private var showDeleteConfirmation = false
     @State private var showMissingMacrosAlert = false
     @State private var missingMacrosFoods: [String] = []
     @State private var pendingMealItems: [DietItemEntry]?
@@ -634,11 +781,33 @@ private struct DietLogView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Diet Log")
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if isSelectingEntries && !selectedEntryIDs.isEmpty {
+                    Button(role: .destructive) {
+                        showDeleteConfirmation = true
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .accessibilityLabel("Delete selected meals")
+                }
+
+                if !viewModel.entries.isEmpty || isSelectingEntries {
+                    Button {
+                        toggleDietSelectionMode()
+                    } label: {
+                        Image(systemName: isSelectingEntries ? "xmark.circle" : "checkmark.circle")
+                            .imageScale(.large)
+                            .symbolRenderingMode(.hierarchical)
+                    }
+                    .accessibilityLabel(isSelectingEntries ? "Cancel selection" : "Select meals")
+                }
+
                 Button {
                     exportLog()
                 } label: {
                     Image(systemName: "square.and.arrow.up")
+                        .imageScale(.large)
+                        .symbolRenderingMode(.hierarchical)
                 }
                 .disabled(!canExportEntries)
                 .accessibilityLabel("Export meals JSON")
@@ -669,6 +838,18 @@ private struct DietLogView: View {
                     }
                 }
             }
+        }
+        .confirmationDialog(
+            "Delete selected meals?",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                deleteSelectedMeals()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will remove \(selectedEntryIDs.count) meal\(selectedEntryIDs.count == 1 ? "" : "s").")
         }
         .sheet(item: $catalogForm) { form in
             CatalogItemSheet(form: form) { updatedForm in
@@ -790,28 +971,7 @@ private struct DietLogView: View {
             VStack(alignment: .leading, spacing: 8) {
                 let trimmedQuery = itemQuery.trimmingCharacters(in: .whitespacesAndNewlines)
 
-                TextField("Search or add food", text: $itemQuery)
-                    .textInputAutocapitalization(.words)
-                    .disableAutocorrection(true)
-                    .padding(.vertical, 14)
-                    .padding(.horizontal, 16)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14)
-                            .fill(Color(.systemBackground))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14)
-                            .stroke(Color(.separator), lineWidth: 1)
-                    )
-                    .focused($isMealInputFocused)
-                    .onChange(of: itemQuery, initial: false) { _, newValue in
-                        let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if let match = viewModel.catalogItem(named: trimmed) {
-                            selectedItem = match.name
-                        } else {
-                            selectedItem = nil
-                        }
-                    }
+                dietSearchField()
 
                 if !trimmedQuery.isEmpty && !filteredCatalog.isEmpty {
                     ScrollView {
@@ -999,15 +1159,35 @@ private struct DietLogView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                 } else {
                     ForEach(displayedEntries) { entry in
-                        Button {
-                            activeSheet = .edit(entry)
-                        } label: {
-                            DietEntryCard(entry: entry)
-                        }
+                        dietHistoryRow(for: entry)
                     }
                 }
             }
         }
+    }
+
+    private func dietHistoryRow(for entry: DietEntry) -> some View {
+        let isSelected = selectedEntryIDs.contains(entry.id)
+        return DietEntryCard(entry: entry)
+            .overlay {
+                if isSelectingEntries && isSelected {
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.accentColor.opacity(0.7), lineWidth: 2)
+                }
+            }
+            .padding(.leading, isSelectingEntries ? 36 : 0)
+            .overlay(alignment: .leading) {
+                if isSelectingEntries {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.title3)
+                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                        .padding(.leading, 4)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                handleDietEntryTap(entry)
+            }
     }
 
     private var filterButton: some View {
@@ -1022,6 +1202,73 @@ private struct DietLogView: View {
         }
         .accessibilityLabel(filterActive ? "Change meal filters" : "Filter meals")
         .buttonStyle(.plain)
+    }
+
+    private func handleDietEntryTap(_ entry: DietEntry) {
+        if isSelectingEntries {
+            toggleDietSelection(for: entry)
+        } else {
+            activeSheet = .edit(entry)
+        }
+    }
+
+    private func toggleDietSelection(for entry: DietEntry) {
+        if selectedEntryIDs.contains(entry.id) {
+            selectedEntryIDs.remove(entry.id)
+        } else {
+            selectedEntryIDs.insert(entry.id)
+        }
+    }
+
+    private func toggleDietSelectionMode() {
+        if isSelectingEntries {
+            resetDietSelection()
+        } else {
+            selectedEntryIDs.removeAll()
+            isSelectingEntries = true
+        }
+    }
+
+    private func resetDietSelection() {
+        selectedEntryIDs.removeAll()
+        isSelectingEntries = false
+    }
+
+    private func deleteSelectedMeals() {
+        viewModel.deleteEntries(withIDs: selectedEntryIDs)
+        resetDietSelection()
+    }
+
+    @ViewBuilder
+    private func dietSearchField() -> some View {
+        ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(.systemBackground))
+
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color(.quaternaryLabel), lineWidth: 1)
+
+            TextField("Search or add food", text: $itemQuery)
+                .textInputAutocapitalization(.words)
+                .disableAutocorrection(true)
+                .padding(.vertical, 14)
+                .padding(.horizontal, 18)
+                .focused($isMealInputFocused)
+                .onChange(of: itemQuery, initial: false) { _, newValue in
+                    let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if let match = viewModel.catalogItem(named: trimmed) {
+                        selectedItem = match.name
+                    } else {
+                        selectedItem = nil
+                    }
+                }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            isMealInputFocused = true
+        }
     }
 
     private func addItemToMeal() {

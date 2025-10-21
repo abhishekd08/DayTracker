@@ -50,6 +50,12 @@ final class WorkoutViewModel: ObservableObject {
         persist()
     }
 
+    func deleteEntries(withIDs ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        entries.removeAll { ids.contains($0.id) }
+        persist()
+    }
+
     func exportLog(entries: [WorkoutEntry]) async -> URL? {
         do {
             return try await store.export(entries: entries)
@@ -126,6 +132,12 @@ final class DietViewModel: ObservableObject {
 
     func deleteEntry(_ entry: DietEntry) {
         entries.removeAll { $0.id == entry.id }
+        persist()
+    }
+
+    func deleteEntries(withIDs ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        entries.removeAll { ids.contains($0.id) }
         persist()
     }
 
