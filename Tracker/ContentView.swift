@@ -40,7 +40,7 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                 }
             }
-            .navigationTitle("Day Tracker")
+            .navigationTitle("GoodDay - Life Logger")
         }
     }
 
